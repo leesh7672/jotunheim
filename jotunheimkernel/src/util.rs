@@ -2,6 +2,7 @@ unsafe extern "C" {
     static __bss_start: u8;
     static __bss_end: u8;
 }
+#[allow(dead_code)]
 
 pub unsafe fn zero_bss() {
     let start = unsafe { &__bss_start as *const u8 as usize };

@@ -89,21 +89,21 @@ unsafe fn msr_write_u32(reg: u32, val: u32) {
 }
 
 unsafe fn apic_read(reg: u32) -> u32 {
-    match MODE {
+    match unsafe { MODE } {
         Mode::XApic { base } => unsafe { read_mmio(base, reg) },
         Mode::X2Apic => unsafe { msr_read_u32(x2(reg)) },
     }
 }
 
 unsafe fn apic_write(reg: u32, val: u32) {
-    match MODE {
+    match unsafe { MODE } {
         Mode::XApic { base } => unsafe { write_mmio(base, reg, val) },
         Mode::X2Apic => unsafe { msr_write_u32(x2(reg), val) },
     }
 }
 
 pub unsafe fn eoi() {
-    match MODE {
+    match unsafe { MODE } {
         Mode::XApic { .. } => unsafe { apic_write(REG_EOI, 0) },
         Mode::X2Apic => unsafe { Msr::new(0x80B).write(0) },
     }
@@ -116,7 +116,7 @@ fn apic_base_from_msr() -> u64 {
 }
 pub fn init() {
     // We'll print the chosen mode after the unsafe section.
-    let mode_str;
+    let _mode_str;
 
     unsafe {
         // 1) Mask legacy PIC completely (we use LAPIC only).
@@ -136,19 +136,19 @@ pub fn init() {
         // 3) Select mode (MMIO xAPIC base from the MSR if not x2APIC).
         if want_x2 {
             MODE = Mode::X2Apic;
-            mode_str = "x2APIC";
+            _mode_str = "x2APIC";
         } else {
             MODE = Mode::XApic {
                 base: apic_base_from_msr() as *mut u32,
             };
-            mode_str = "xAPIC";
+            _mode_str = "xAPIC";
         }
 
         // 4) Program Spurious Vector Register: enable APIC + set vector.
         apic_write(REG_SVR, (SPURIOUS_VECTOR as u32) | SVR_APIC_ENABLE);
 
         // 5) Accept all priorities (TPR = 0).
-        match MODE {
+        match unsafe { MODE } {
             Mode::XApic { .. } => apic_write(REG_TPR, 0),
             // x2APIC TPR is MSR 0x808
             Mode::X2Apic => Msr::new(0x808).write(0),

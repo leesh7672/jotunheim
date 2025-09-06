@@ -4,6 +4,7 @@ use core::arch::x86_64::{__cpuid_count, _rdtsc};
 pub fn rdtsc() -> u64 {
     unsafe { _rdtsc() }
 }
+#[allow(dead_code)]
 
 pub fn has_invariant_tsc() -> bool {
     let l = unsafe { __cpuid_count(0x8000_0007, 0) };

@@ -3,12 +3,13 @@ use core::ptr::null_mut;
 use spin::Mutex;
 
 struct Bump {
-    start: usize,
+    _start: usize,
     end: usize,
     next: usize,
 }
 
 static ALLOC: Mutex<Option<Bump>> = Mutex::new(None);
+#[allow(dead_code)]
 
 pub fn init(paddr: usize, len: usize) {
     *ALLOC.lock() = Some(Bump {

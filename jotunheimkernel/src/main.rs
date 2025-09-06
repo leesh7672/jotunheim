@@ -22,7 +22,7 @@ mod arch {
     }
 }
 
-use arch::x86_64::{apic, gdt, idt, ioapic, mmio_map, serial};
+use arch::x86_64::{apic, gdt, idt, ioapic, serial};
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
 
@@ -37,7 +37,7 @@ pub fn early_map_mmio_for_apics() {
     let mut mapper = unsafe { active_offset_mapper(0) };
 
     // 2) get a RAW pointer to the static (allowed under the lint)
-    let alloc: *mut TinyBump = unsafe { &raw mut ALLOC };
+    let alloc: *mut TinyBump = &raw mut ALLOC;
 
     // 3) use it only within a very small unsafe region
     unsafe {
@@ -55,7 +55,7 @@ pub fn early_map_mmio_for_apics() {
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     x86_64::instructions::interrupts::disable();
-    let boot = unsafe { &*boot_info_ptr };
+    let _boot = unsafe { &*boot_info_ptr };
 
     unsafe {
         serial::init_com1(115_200);

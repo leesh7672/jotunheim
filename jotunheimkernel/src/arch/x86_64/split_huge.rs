@@ -4,13 +4,12 @@ use x86_64::structures::paging::{
     Mapper,
     Page,
     PageSize, // <— for ::SIZE
-    PageTable,
     PageTableFlags as F,
     PhysFrame,
     Size2MiB,
     Size4KiB,
     mapper::MapToError,
-    mapper::MapperFlush, // <— moved
+    // <— moved
 };
 
 use x86_64::{PhysAddr, VirtAddr};
@@ -30,7 +29,7 @@ where
     let huge_page = Page::<Size2MiB>::containing_address(va);
 
     // Grab the current 2MiB mapping (if any)
-    if let Ok(flush) = unsafe { mapper.unmap(huge_page) } {
+    if let Ok(flush) = mapper.unmap(huge_page) {
         flush.1.flush();
         // Back the 2MiB range with a brand new 4KiB page table:
         let base = huge_page.start_address().as_u64();

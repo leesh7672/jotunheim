@@ -1,8 +1,10 @@
+#![allow(unused_unsafe)]
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Once;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
-static LAST_VEC: AtomicU64 = AtomicU64::new(0xFF);
+#[allow(dead_code)]
+static _LAST_VEC: AtomicU64 = AtomicU64::new(0xFF);
 
 use crate::arch::x86_64::apic; // exposes TIMER_VECTOR, SPURIOUS_VECTOR and EOI helper
 
@@ -40,6 +42,7 @@ extern "x86-interrupt" fn timer_apic(_stack: InterruptStackFrame) {
         apic::timer_isr_eoi_and_rearm_deadline();
     }
 }
+#[allow(dead_code)]
 
 pub fn ticks() -> u64 {
     TICKS.load(Ordering::Relaxed)
@@ -47,25 +50,25 @@ pub fn ticks() -> u64 {
 
 // -------- Exception handlers (safe to log + halt) --------
 
-extern "x86-interrupt" fn divide_by_zero(stack: InterruptStackFrame) {
+extern "x86-interrupt" fn divide_by_zero(_stack: InterruptStackFrame) {
     unsafe {
         crate::arch::x86_64::apic::eoi();
     }
 }
 
-extern "x86-interrupt" fn gpf(stack: InterruptStackFrame, _error: u64) {
+extern "x86-interrupt" fn gpf(_stack: InterruptStackFrame, _error: u64) {
     unsafe {
         crate::arch::x86_64::apic::eoi();
     }
 }
 
-extern "x86-interrupt" fn page_fault(stack: InterruptStackFrame, error: PageFaultErrorCode) {
+extern "x86-interrupt" fn page_fault(_stack: InterruptStackFrame, _error: PageFaultErrorCode) {
     unsafe {
         crate::arch::x86_64::apic::eoi();
     }
 }
 
-extern "x86-interrupt" fn double_fault_no_ret(stack: InterruptStackFrame, _error: u64) {
+extern "x86-interrupt" fn double_fault_no_ret(_stack: InterruptStackFrame, _error: u64) {
     unsafe {
         crate::arch::x86_64::apic::eoi();
     }
