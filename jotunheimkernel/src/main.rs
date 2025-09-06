@@ -6,24 +6,55 @@ mod bootinfo;
 mod util;
 mod mem {
     pub mod bump;
+    pub mod mapper;
+    pub mod simple_alloc;
 }
 mod arch {
     pub mod x86_64 {
         pub mod apic;
         pub mod gdt;
         pub mod idt;
+        pub mod ioapic;
+        pub mod mmio_map;
         pub mod serial;
+        pub mod split_huge;
         pub mod tsc;
     }
 }
 
-use arch::x86_64::{apic, gdt, idt, serial};
+use arch::x86_64::{apic, gdt, idt, ioapic, mmio_map, serial};
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
+
+use crate::arch::x86_64::{mmio_map::map_identity_uc, split_huge::split_huge_2m};
+use crate::mem::mapper::active_offset_mapper;
+use crate::mem::simple_alloc::TinyBump;
+// somewhere global
+static mut ALLOC: TinyBump = TinyBump::new(0x0030_0000, 0x0031_0000);
+
+pub fn early_map_mmio_for_apics() {
+    // 1) active mapper (identity offset here; adjust if needed)
+    let mut mapper = unsafe { active_offset_mapper(0) };
+
+    // 2) get a RAW pointer to the static (allowed under the lint)
+    let alloc: *mut TinyBump = unsafe { &raw mut ALLOC };
+
+    // 3) use it only within a very small unsafe region
+    unsafe {
+        // split any covering 2MiB pages once
+        let _ = split_huge_2m(&mut mapper, &mut *alloc, 0xFEC0_0000);
+        let _ = split_huge_2m(&mut mapper, &mut *alloc, 0xFEE0_0000);
+
+        // map UC pages you need
+        let _ = map_identity_uc(&mut mapper, &mut *alloc, 0xFEC0_0000); // IOAPIC
+        let _ = map_identity_uc(&mut mapper, &mut *alloc, 0xFEE0_0000); // LAPIC
+    }
+}
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
+    x86_64::instructions::interrupts::disable();
     let boot = unsafe { &*boot_info_ptr };
 
     unsafe {
@@ -33,13 +64,20 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
 
     gdt::init();
     idt::init();
+    early_map_mmio_for_apics();
     crate::println!("[JOTUNHEIM] GDT/IDT is initialised.");
 
     apic::init();
-    let _ = apic::start_timer_hz(1000);
+    crate::println!("[JOTUNHEIM] APIC is initialised.");
+
+    unsafe {
+        ioapic::mask_all();
+    }
+    crate::println!("[JOTUNHEIM] IOAPIC is masked all.");
+
+    let _ = apic::start_best_timer_hz(1_000);
 
     x86_64::instructions::interrupts::enable();
-
     crate::println!("[JOTUNHEIM] Interrupts are enabled.");
 
     loop {

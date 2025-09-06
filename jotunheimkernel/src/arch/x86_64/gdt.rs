@@ -14,9 +14,10 @@ struct Selectors {
 const _DOUBLE_FAULT_IST_INDEX: u16 = 0;
 
 fn build_tss() -> TaskStateSegment {
-    let tss = TaskStateSegment::new();
+    let mut tss = TaskStateSegment::new();
     // TODO: allocate IST stack and set:
     // tss.interrupt_stack_table[_DOUBLE_FAULT_IST_INDEX as usize] = VirtAddr::from_ptr(stack_top);
+    tss.iomap_base = u16::MAX;
     tss
 }
 

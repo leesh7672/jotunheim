@@ -25,7 +25,7 @@ ESP_KERNEL       := $(ESP_OS_DIR)/KERNEL.ELF
 # ===== QEMU / UEFI firmware =====
 QEMU             ?= qemu-system-x86_64
 QEMU_MACHINE     ?= q35
-QEMU_MEM         ?= 1G
+QEMU_MEM         ?= 24G
 OVMF_CODE        ?= /usr/local/share/edk2-qemu/QEMU_UEFI_CODE-x86_64.fd
 QEMU_EXTRA       ?=
 

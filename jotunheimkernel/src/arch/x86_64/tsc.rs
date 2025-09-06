@@ -2,24 +2,43 @@ use core::arch::x86_64::{__cpuid_count, _rdtsc};
 
 #[inline]
 pub fn rdtsc() -> u64 {
-    // Safe to call on x86_64; serializing/ordering handled by callers.
     unsafe { _rdtsc() }
 }
 
+pub fn has_invariant_tsc() -> bool {
+    let l = unsafe { __cpuid_count(0x8000_0007, 0) };
+    (l.edx & (1 << 8)) != 0
+}
+
+pub fn has_tsc_deadline() -> bool {
+    let l = unsafe { __cpuid_count(0x01, 0) };
+    (l.ecx & (1 << 24)) != 0
+}
+
 pub fn tsc_hz_estimate() -> u64 {
-    // Try CPUID.15H (TSC/core crystal ratio)
-    let leaf15 = unsafe { __cpuid_count(0x15, 0) };
-    let (den, num) = (leaf15.eax, leaf15.ebx);
-    let crystal = leaf15.ecx; // Hz
-    if den != 0 && num != 0 && crystal != 0 {
-        return (crystal as u64) * (num as u64) / (den as u64);
+    // Try CPUID.15H first
+    let l15 = unsafe { __cpuid_count(0x15, 0) };
+    let (den, num, ecx) = (l15.eax, l15.ebx, l15.ecx);
+    if den != 0 && num != 0 && ecx != 0 {
+        let mut hz = (ecx as u64) * (num as u64) / (den as u64);
+        // Heuristic: if result is implausibly low, interpret units (kHz/MHz) like some QEMU configs
+        if hz < 10_000_000 {
+            if hz >= 1_000 && hz < 10_000 {
+                hz *= 1_000_000;
+            }
+            // looked like MHz (e.g., 2859)
+            else if hz >= 10_000 {
+                hz *= 1_000;
+            } // looked like kHz
+        }
+        return hz;
     }
-    // Fallback: CPUID.16H base freq in MHz
-    let leaf16 = unsafe { __cpuid_count(0x16, 0) };
-    let mhz = leaf16.eax & 0xFFFF;
+    // Fallback: CPUID.16H MHz
+    let l16 = unsafe { __cpuid_count(0x16, 0) };
+    let mhz = (l16.eax & 0xFFFF) as u64;
     if mhz != 0 {
-        return (mhz as u64) * 1_000_000;
+        return mhz * 1_000_000;
     }
-    // Worst-case default
+
     3_000_000_000
 }
