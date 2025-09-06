@@ -3,7 +3,7 @@ use core::ptr::null_mut;
 use spin::Mutex;
 
 struct Bump {
-    _start: usize,
+    start: usize,
     end: usize,
     next: usize,
 }

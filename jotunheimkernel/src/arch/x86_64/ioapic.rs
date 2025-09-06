@@ -1,5 +1,4 @@
 // src/arch/x86_64/ioapic.rs
-use core::ptr::{read_volatile, write_volatile};
 
 const IOAPIC_BASE: usize = 0xFEC0_0000;
 const IOREGSEL: usize = 0x00;

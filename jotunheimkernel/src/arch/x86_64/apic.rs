@@ -148,7 +148,7 @@ pub fn init() {
         apic_write(REG_SVR, (SPURIOUS_VECTOR as u32) | SVR_APIC_ENABLE);
 
         // 5) Accept all priorities (TPR = 0).
-        match unsafe { MODE } {
+        match MODE {
             Mode::XApic { .. } => apic_write(REG_TPR, 0),
             // x2APIC TPR is MSR 0x808
             Mode::X2Apic => Msr::new(0x808).write(0),

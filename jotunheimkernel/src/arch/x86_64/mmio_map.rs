@@ -1,7 +1,5 @@
 use x86_64::structures::paging::{
-    FrameAllocator, Mapper, Page, PageTableFlags as F,
-    PhysFrame, Size4KiB,
-    mapper::{MapToError, },
+    FrameAllocator, Mapper, Page, PageTableFlags as F, PhysFrame, Size4KiB, mapper::MapToError,
 };
 use x86_64::{PhysAddr, VirtAddr};
 
