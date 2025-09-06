@@ -1,0 +1,15 @@
+[package]
+name = "jotunboot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Turn OFF default features so nothing pulls in std.
+log = { version = "0.4" }
+uefi = { version = "0.35.0", features = ["alloc"], default-features = false }
+xmas-elf = "0.9"
+
+[profile.dev]
+panic = "abort"
+[profile.release]
+panic = "abort"

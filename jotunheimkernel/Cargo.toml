@@ -1,0 +1,26 @@
+[package]
+name = "jotunheim-kernel"
+version = "0.1.0"
+edition = "2024"
+authors = ["JotunheimOS Team"]
+
+[[bin]]
+name = "jotunheim-kernel"
+path = "src/main.rs"    
+
+[dependencies]
+x86_64 = "0.15"
+spin = "0.9"
+uart_16550 = "0.2"
+volatile = "0.5"
+bitflags = "2"
+
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "z"

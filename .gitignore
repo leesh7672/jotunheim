@@ -1,0 +1,65 @@
+# === Rust / Cargo ===
+target/
+**/target/
+Cargo.lock
+.cargo-ok
+
+# === Build artifacts ===
+*.o
+*.a
+*.rlib
+*.d
+*.dSYM/
+*.so
+*.dll
+*.exe
+
+# === Bootloader & Kernel ===
+jotunboot/target/
+jotunheimkernel/target/
+
+# === ESP staging ===
+esp/
+*.img
+*.iso
+
+# === QEMU / VM runtime ===
+*.log
+*.tmp
+*.bin
+*.fd
+*.qcow2
+*.vdi
+*.vmdk
+
+# === Generated manifests ===
+*.manifest
+*.lock
+*.sbom
+*.toml.lock
+
+# === OS-specific ===
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === Testing & CI/CD scratch ===
+coverage/
+profdata/
+*.profraw
+*.profdata
+fuzz/artifacts/
+fuzz/corpus/
+
+# === Other temporary ===
+*.bak
+*.old
+*.orig
