@@ -35,16 +35,12 @@ all: esp-populate
 
 # ===== Build targets =====
 .PHONY: boot
-boot: $(BOOT_EFI)
-
-$(BOOT_EFI):
+boot: 
 	@echo "==> Building bootloader"
 	cd $(BOOT_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build --release
 
 .PHONY: kernel
-kernel: $(KERNEL_ELF)
-
-$(KERNEL_ELF):
+kernel: 
 	@echo "==> Building kernel"
 	cd $(KERNEL_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build --release
 
