@@ -1,8 +1,15 @@
 #![allow(unused)]
 
 use spin::Once;
-use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
-use x86_64::structures::tss::TaskStateSegment;
+use x86_64::{
+    VirtAddr,
+    instructions::{
+        segmentation::{CS, SS, Segment},
+        tables::load_tss,
+    },
+    structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
+    structures::tss::TaskStateSegment,
+};
 
 #[derive(Copy, Clone)]
 pub struct Selectors {
@@ -11,40 +18,75 @@ pub struct Selectors {
     pub tss: SegmentSelector, // lower TSS slot (e.g., 0x28)
 }
 
-// Lives forever; fill rsp0/ISTs elsewhere if needed before init().
-static TSS: TaskStateSegment = {
-    let t = TaskStateSegment::new();
-    t
-};
-
-// 'static singletons backed by spin::Once (Sync on no_std)
+// Singletons
 static GDT: Once<GlobalDescriptorTable> = Once::new();
 static SELECTORS: Once<Selectors> = Once::new();
+static TSS: Once<TaskStateSegment> = Once::new();
 
-/// Build + load the GDT once; return selectors. Safe to call multiple times.
-pub fn init() -> Selectors {
+// Early bring-up stacks (replace with per-CPU allocator + guard pages later)
+#[unsafe(link_section = ".bss")]
+static mut RSP0_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+#[unsafe(link_section = ".bss")]
+static mut DF_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+#[unsafe(link_section = ".bss")]
+static mut PF_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+
+const RSP0_STACK_LEN: usize = 16 * 1024;
+const DF_STACK_LEN: usize = 16 * 1024;
+const PF_STACK_LEN: usize = 16 * 1024;
+
+const IST_DF: u16 = 1;
+const IST_PF: u16 = 2;
+
+#[inline]
+fn top_raw(base: *mut u8, len: usize) -> VirtAddr {
+    // Return top-of-stack (16-byte aligned), without forming &/&mut to static mut
+    let end = unsafe { base.add(len) } as *const u8;
+    VirtAddr::from_ptr(end).align_down(16u64)
+}
+
+/// Build + load GDT/TSS once; return selectors. Safe to call multiple times.
+pub fn init() {
     if let Some(s) = SELECTORS.get() {
-        return *s;
+        return;
     }
 
-    // Build temporary table, append entries (x86_64 = "0.15" uses `append`)
+    // Materialize TSS with real stacks (once)
+    let tss_ref = TSS.call_once(|| {
+        let mut t = TaskStateSegment::new();
+
+        // Compute tops from raw pointers to avoid &mut refs to static mut (Rust 2024)
+        let rsp0_base = core::ptr::addr_of_mut!(RSP0_STACK) as *mut u8;
+        let df_base = core::ptr::addr_of_mut!(DF_STACK) as *mut u8;
+        let pf_base = core::ptr::addr_of_mut!(PF_STACK) as *mut u8;
+
+        t.privilege_stack_table[0] = top_raw(rsp0_base, RSP0_STACK_LEN); // rsp0
+        t.interrupt_stack_table[(IST_DF - 1) as usize] = top_raw(df_base, DF_STACK_LEN); // #DF
+        t.interrupt_stack_table[(IST_PF - 1) as usize] = top_raw(pf_base, PF_STACK_LEN); // #PF (optional but useful)
+
+        t
+    });
+
+    // Build temporary GDT and append entries
     let mut tmp = GlobalDescriptorTable::new();
     let code = tmp.append(Descriptor::kernel_code_segment());
     let data = tmp.append(Descriptor::kernel_data_segment());
-    let tss = tmp.append(Descriptor::tss_segment(&TSS));
+    let tss = tmp.append(Descriptor::tss_segment(tss_ref));
 
-    // Move table into 'static storage, then load from that &'static ref
+    // Move into 'static storage and load from that &'static
     let gdt_ref: &'static GlobalDescriptorTable = GDT.call_once(|| tmp);
     unsafe {
         gdt_ref.load();
+        CS::set_reg(code);
+        SS::set_reg(data);
+        load_tss(tss);
     }
 
     let sels = Selectors { code, data, tss };
     let sels_ref: &'static Selectors = SELECTORS.call_once(|| sels);
-    *sels_ref
 }
 
-// ---- Accessors used elsewhere ----
+// ---- Accessors ----
 #[inline]
 pub fn selectors() -> Selectors {
     *SELECTORS.get().expect("gdt::init() not called")
