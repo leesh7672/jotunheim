@@ -79,7 +79,7 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
     println!("[JOTUNHEIM] Interrupts are enabled.");
 
-    apic::start_best_timer_hz(1_000);
+    apic::start_timer_periodic_hz(100);
     println!("[JOTUNHEIM] Timer starts.");
 
     apic::snapshot_debug();
@@ -87,9 +87,11 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     let mut last = 0u64;
     loop {
         let cur = idt::TICKS.load(Ordering::Relaxed);
-        last = cur;
-        crate::println!("[tick] {}", cur);
-        x86_64::instructions::hlt();
+        if cur != last {
+            last = cur;
+            crate::println!("[tick] {}", cur);
+        }
+        x86_64::instructions::interrupts::enable_and_hlt();
     }
 }
 

@@ -3,6 +3,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 use core::mem::size_of;
+use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use x86_64::instructions::segmentation::{CS, Segment};
@@ -24,16 +25,17 @@ unsafe extern "C" {
 pub static TICKS: AtomicU64 = AtomicU64::new(0);
 
 // ----------------- Raw IDT entry / IDTR structs (x86_64) -------------------
+// src/arch/x86_64/idt.rs (gate builder)
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone)]
 struct IdtEntry {
-    offset_low: u16,  // bits 0..15 of handler
-    selector: u16,    // code segment selector
-    ist: u8,          // bits 0..2 = IST index
-    options: u8,      // type=0xE (interrupt gate), DPL, P
-    offset_mid: u16,  // bits 16..31
-    offset_high: u32, // bits 32..63
-    reserved: u32,
+    offset_low: u16,
+    selector: u16,
+    ist: u8,       // 3 bits used
+    type_attr: u8, // P | DPL | 0 | type
+    offset_mid: u16,
+    offset_high: u32,
+    zero: u32,
 }
 
 impl IdtEntry {
@@ -42,13 +44,19 @@ impl IdtEntry {
             offset_low: 0,
             selector: 0,
             ist: 0,
-            options: 0,
+            type_attr: 0,
             offset_mid: 0,
             offset_high: 0,
-            reserved: 0,
+            zero: 0,
         }
     }
 }
+
+#[repr(C, align(16))]
+struct Idt([IdtEntry; 256]);
+
+#[unsafe(no_mangle)]
+static mut IDT: Idt = Idt([IdtEntry::missing(); 256]);
 
 #[repr(C, packed)]
 struct Idtr {
@@ -56,26 +64,24 @@ struct Idtr {
     base: u64,
 }
 
-// Our IDT table (256 entries).
-static mut IDT: [IdtEntry; 256] = [IdtEntry::missing(); 256];
+#[inline(always)]
+unsafe fn load_idt(idt_base: *const IdtEntry) {
+    // size is 256 entries
+    let limit = (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16;
+    let idtr = Idtr {
+        limit,
+        base: idt_base as u64,
+    };
 
-// Build a gate entry value.
-fn make_gate(handler: unsafe extern "C" fn(), ist: u8, dpl: u8) -> IdtEntry {
-    let addr = handler as usize as u64;
-    let sel = CS::get_reg().0;
-
-    let mut e = IdtEntry::missing();
-    e.offset_low = (addr & 0xFFFF) as u16;
-    e.selector = sel;
-    e.ist = ist & 0x7;
-    e.options = 0x80 | ((dpl & 0x3) << 5) | 0x0E; // P=1, type=interrupt gate
-    e.offset_mid = ((addr >> 16) & 0xFFFF) as u16;
-    e.offset_high = ((addr >> 32) & 0xFFFF_FFFF) as u32;
-    e.reserved = 0;
-    e
+    // SAFETY: We’re loading the IDTR with the address of our static IDT.
+    unsafe {
+        core::arch::asm!(
+            "lidt [{}]",
+            in(reg) &idtr,
+            options(readonly, nostack, preserves_flags)
+        );
+    }
 }
-
-// Store a gate into IDT using a raw pointer (Rust 2024: no &mut static mut).
 unsafe fn set_gate_raw(
     idt_base: *mut IdtEntry,
     idx: usize,
@@ -83,38 +89,40 @@ unsafe fn set_gate_raw(
     ist: u8,
     dpl: u8,
 ) {
-    let entry = make_gate(handler, ist, dpl);
-    idt_base.add(idx).write(entry);
+    let addr = handler as usize;
+    let entry = IdtEntry {
+        offset_low: (addr & 0xFFFF) as u16,
+        selector: 0x08, // your kernel CS
+        ist: ist & 0x7,
+        type_attr: 0x8E | ((dpl & 0x3) << 5),
+        offset_mid: ((addr >> 16) & 0xFFFF) as u16,
+        offset_high: ((addr >> 32) & 0xFFFF_FFFF) as u32,
+        zero: 0,
+    };
+    core::ptr::write(idt_base.add(idx), entry);
+}
+unsafe fn set_gate(idx: usize, handler: unsafe extern "C" fn(), ist: u8, dpl: u8) {
+    // Raw pointer to the array inside the static, without taking & or &mut
+    let base: *mut IdtEntry = addr_of_mut!(IDT.0) as *mut IdtEntry;
+    set_gate_raw(base, idx, handler, ist, dpl);
 }
 
+unsafe fn load_idt_from_global() {
+    let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
+    load_idt(idt_ptr);
+}
 // ------------------------ Public init: build and load IDT -------------------
 pub fn init() {
     unsafe {
-        // Raw pointer to the first entry; avoids &mut to static mut.
-        let idt_ptr: *mut IdtEntry = core::ptr::addr_of_mut!(IDT) as *mut IdtEntry;
-
-        // Fill all entries with the default stub.
-        for v in 0usize..256 {
-            set_gate_raw(idt_ptr, v, isr_default_stub, 0, 0);
+        for v in 0u8..=255 {
+            set_gate(v as usize, isr_default_stub, 0, 0);
         }
+        set_gate(13, isr_gp_stub, 0, 0);
+        set_gate(14, isr_pf_stub, 0, 0);
+        set_gate(8, isr_df_stub, 1, 0); // DF on an IST if you want
+        set_gate(0x20, isr_timer_stub, 0, 0);
 
-        // Exceptions of interest
-        set_gate_raw(idt_ptr, 13, isr_gp_stub, 0, 0); // #GP
-        set_gate_raw(idt_ptr, 14, isr_pf_stub, 0, 0); // #PF
-        set_gate_raw(idt_ptr, 8, isr_df_stub, 1, 0); // #DF on IST1 (ensure IST1 in TSS)
-        set_gate_raw(idt_ptr, 6, isr_ud_stub, 0, 0);
-
-        // LAPIC timer IRQ at TIMER_VECTOR (0x20)
-        set_gate_raw(idt_ptr, TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
-
-        // Load the IDT using a raw base address (no shared ref to static mut).
-        let idtr = Idtr {
-            limit: (size_of::<IdtEntry>() * 256 - 1) as u16,
-            base: idt_ptr as u64,
-        };
-        unsafe {
-            core::arch::asm!("lidt [{}]", in(reg) &idtr, options(readonly, nostack, preserves_flags));
-        }
+        load_idt_from_global();
     }
 }
 
@@ -165,5 +173,7 @@ pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64) -> ! {
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) {
     TICKS.fetch_add(1, Ordering::Relaxed);
-    apic::timer_isr_eoi_and_rearm_deadline();
+    unsafe {
+        apic::eoi();
+    }
 }
