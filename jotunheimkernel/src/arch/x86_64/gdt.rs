@@ -1,5 +1,7 @@
 use spin::Once;
 use x86_64::VirtAddr;
+
+use x86_64::instructions::segmentation::{CS, Segment};
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 
@@ -48,9 +50,12 @@ pub fn init() {
 
     let (g, sel) = GDT.get().unwrap();
     g.load();
-    unsafe {
-        x86_64::instructions::tables::load_tss(sel.tss);
-    }
+
+    // Load CS via the Segment trait
+    unsafe { CS::set_reg(sel.code) };
+
+    // Load TSS
+    unsafe { x86_64::instructions::tables::load_tss(sel.tss) };
 }
 
 pub const fn ist_index_df() -> u16 {
