@@ -80,7 +80,7 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
     println!("[JOTUNHEIM] Interrupts are enabled.");
 
-    apic::start_timer_periodic_hz(1_000);
+    apic::start_best_timer_hz(1_000);
     println!("[JOTUNHEIM] Timer starts.");
 
     apic::snapshot_debug();

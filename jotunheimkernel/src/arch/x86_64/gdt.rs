@@ -1,6 +1,7 @@
 // was: use core::sync::OnceLock;  OR core::cell::OnceCell
 use spin::Once;
 
+use x86_64::registers::segmentation::{Segment, CS};
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 
@@ -29,6 +30,7 @@ pub fn init() {
     });
 
     gdt.load();
+    unsafe { CS::set_reg(sel.code) };
     unsafe {
         x86_64::instructions::tables::load_tss(sel.tss);
     }
