@@ -27,7 +27,7 @@ use bootinfo::BootInfo;
 use core::panic::PanicInfo;
 use core::sync::atomic::Ordering;
 
-use crate::arch::x86_64::{mmio_map::map_identity_uc, split_huge::split_huge_2m};
+use crate::arch::x86_64::{idt, mmio_map::map_identity_uc, split_huge::split_huge_2m};
 use crate::mem::mapper::active_offset_mapper;
 use crate::mem::simple_alloc::TinyBump;
 
@@ -44,8 +44,15 @@ pub extern "C" fn _start() -> ! {
 
     crate::arch::x86_64::apic::snapshot_debug();
 
+    let mut last = 0;
     loop {
-        core::hint::spin_loop()
+        let t = idt::TICKS.load(Ordering::Relaxed);
+        if t.wrapping_sub(last) >= 500 {
+            // ~0.5s at 1 kHz
+            last = t;
+            println!("[TIMER] ticks={}", t);
+        }
+        core::hint::spin_loop(); // or `unsafe { core::arch::asm!("hlt"); }` if you prefer
     }
 }
 
