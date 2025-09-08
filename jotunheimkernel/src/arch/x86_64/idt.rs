@@ -154,6 +154,9 @@ pub extern "C" fn isr_ud_rust(_: u64, _: u64) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(_: u64, _: u64) {
-    TICKS.fetch_add(1, Ordering::Relaxed);
+    let n = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+    if n % 1000 == 0 {
+        crate::println!("[lapic] {} ms", n);
+    }
     apic::timer_isr_eoi_and_rearm_deadline();
 }

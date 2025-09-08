@@ -76,10 +76,11 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
 
     println!("[JOTUNHEIM] IOAPIC is masked all.");
 
+    apic::open_all_irqs();
     x86_64::instructions::interrupts::enable();
     println!("[JOTUNHEIM] Interrupts are enabled.");
 
-    apic::start_timer_periodic_hz(100);
+    apic::start_timer_periodic_hz(1_000);
     println!("[JOTUNHEIM] Timer starts.");
 
     apic::snapshot_debug();
@@ -87,9 +88,9 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     let mut last = 0u64;
     loop {
         let cur = idt::TICKS.load(Ordering::Relaxed);
-        if cur != last {
+        if last != cur {
             last = cur;
-            crate::println!("[tick] {}", cur);
+            println!("[tick] {}", cur);
         }
         x86_64::instructions::interrupts::enable_and_hlt();
     }

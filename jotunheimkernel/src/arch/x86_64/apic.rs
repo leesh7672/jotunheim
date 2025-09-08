@@ -321,3 +321,20 @@ pub fn open_all_irqs() {
         }
     }
 }
+pub fn start_timer_periodic_rough() {
+    const DIV: u32 = 0b011; // divide by 16
+    const INIT: u32 = 50_000; // ~coarse period; adjust as needed
+    unsafe {
+        // enable APIC + spurious vector was already done in init()
+        apic_write(REG_DIVIDE, DIV);
+        apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | (1 << 17)); // periodic
+        apic_write(REG_INIT_CNT, INIT);
+    }
+    // drop threshold after everything is armed
+    unsafe {
+        match MODE {
+            Mode::XApic { .. } => apic_write(REG_TPR, 0),
+            Mode::X2Apic => Msr::new(0x808).write(0),
+        }
+    }
+}

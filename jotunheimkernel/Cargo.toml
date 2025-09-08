@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 x86_64 = "0.15"
-spin = { version = "0.10", default-features = false, features = ["once", "spin_mutex"] }
+spin = { version = "0.10", default-features = false, features = ["once", "mutex", "spin_mutex"] }
 uart_16550 = "0.4"
 volatile = "0.6.1"
 bitflags = "2"
