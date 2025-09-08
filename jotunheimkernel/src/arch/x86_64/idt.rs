@@ -142,14 +142,14 @@ pub fn init() {
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     if !THROTTLED_ONCE.swap(true, Ordering::Relaxed) {
-        crate::println!("[INT] default vec={:#04x} err={:#018x}", vec, err);
+        println!("[INT] default vec={:#04x} err={:#018x}", vec, err);
     }
     unsafe { apic::eoi() };
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
-    crate::println!("[#GP] err={:#018x}", err);
+    println!("[#GP] err={:#018x}", err);
     loop {
         x86_64::instructions::hlt();
     }
@@ -161,7 +161,7 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
     let cr2 = Cr2::read().expect("CR2 read failed").as_u64();
     crate::arch::x86_64::mmio_map::log_va_mapping("PF-cr2", cr2, 0);
 
-    crate::println!("[#PF] err={:#018x} cr2={:#016x}", err, cr2);
+    println!("[#PF] err={:#018x} cr2={:#016x}", err, cr2);
     loop {
         x86_64::instructions::hlt();
     }
@@ -169,15 +169,15 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
-    crate::println!("[#DF] double fault");
+    println!("[#DF] double fault");
     loop {
         x86_64::instructions::hlt();
     }
 }
-
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64) -> ! {
-    crate::println!("[#UD] invalid opcode");
+pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64) -> ! {
+    crate::println!("[#UD] rip={:#018x}", rip);
+    crate::arch::x86_64::mmio_map::log_va_mapping("UD-rip", rip, 0);
     loop {
         x86_64::instructions::hlt();
     }

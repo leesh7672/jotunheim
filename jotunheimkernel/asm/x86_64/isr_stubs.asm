@@ -124,13 +124,18 @@ isr_ud_stub:
     PUSH_VOLATILES
     mov rdi, 6
     mov rsi, 0
-    ALIGN_BEFORE_CALL
-    call isr_ud_rust           ; does not return
-    UNALIGN_AFTER_CALL
+    ; load RIP from the interrupted frame:
+    ; we pushed 9 regs -> 72 bytes; top of our pushes = rsp
+    ; RIP is at [rsp + 9*8 + 8] (err doesn't exist for UD, so frame: RIP,CS,RFLAGS,...)
+    mov rdx, [rsp + 9*8 + 0x08]
+    sub rsp, 8
+    call isr_ud_rust
+    add rsp, 8
 .hang_ud:
     cli
     hlt
     jmp .hang_ud
+
 
 ; ---------------- LAPIC Timer (vector 0x20) — no error code ----------------
 ; Must return with EOI handled in Rust or after the call.

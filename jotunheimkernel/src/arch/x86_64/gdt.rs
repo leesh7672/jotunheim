@@ -4,7 +4,7 @@ use spin::Once;
 use x86_64::{
     VirtAddr,
     instructions::{
-        segmentation::{CS, DS, Segment},
+        segmentation::{CS, DS, ES, SS, Segment},
         tables::load_tss,
     },
     structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
@@ -91,6 +91,8 @@ pub fn init() {
         gdt_ref.load();
         CS::set_reg(code);
         DS::set_reg(data);
+        ES::set_reg(data);
+        SS::set_reg(data);
         load_tss(tss);
     }
 

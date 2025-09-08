@@ -4,11 +4,10 @@ use crate::mem::mapper::active_offset_mapper;
 use crate::mem::simple_alloc::TinyBump;
 use crate::println;
 
-use x86_64::structures::paging::{
-    Mapper, Page, PageTableFlags as F, Size2MiB, Size4KiB,
-    mapper::MapToError,
-};
 use x86_64::VirtAddr;
+use x86_64::structures::paging::{
+    Mapper, Page, PageTableFlags as F, Size2MiB, Size4KiB, mapper::MapToError,
+};
 
 /// Errors from early APIC MMIO mapping.
 #[derive(Debug)]

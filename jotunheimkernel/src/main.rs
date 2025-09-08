@@ -24,28 +24,31 @@ mod arch {
 }
 
 use core::panic::PanicInfo;
+use x86_64::instructions::interrupts;
+
+use crate::arch::x86_64::{apic, init, serial};
 
 static mut DEMO_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start() -> ! {
-    x86_64::instructions::interrupts::disable();
+    interrupts::disable();
     unsafe {
-        crate::arch::x86_64::serial::init_com1(115_200);
+        serial::init_com1(115_200);
     }
     println!("[JOTUNHEIM] Kernel starts.");
 
-    crate::arch::x86_64::init::init_arch();
-    crate::arch::x86_64::apic::snapshot_debug();
+    init::init_arch();
+    apic::snapshot_debug();
 
     let ptr = core::ptr::addr_of_mut!(DEMO_STACK) as *mut u8;
     const DEMO_STACK_LEN: usize = 16 * 1024;
-    sched::ctx_layout_sanity();
     sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
 
-    x86_64::instructions::interrupts::enable();
-    crate::sched::yield_now();
+    interrupts::enable();
+    sched::yield_now();
+
     loop {
         x86_64::instructions::hlt();
     }
