@@ -1,80 +1,63 @@
-#![allow(dead_code)]
-
-use core::ptr::addr_of;
+#![allow(unused)]
 
 use spin::Once;
-
-use x86_64::instructions::segmentation::Segment; // brings CS::set_reg into scope
-use x86_64::registers::segmentation::CS;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
-use x86_64::{VirtAddr, instructions};
-
-use crate::println;
-
-// One IST stack for DF etc. (16 KiB)
-#[repr(align(16))]
-struct Aligned([u8; 4096 * 4]);
-static mut IST1_STACK: Aligned = Aligned([0u8; 4096 * 4]);
 
 #[derive(Copy, Clone)]
 pub struct Selectors {
     pub code: SegmentSelector,
-    pub tss: SegmentSelector,
+    pub data: SegmentSelector,
+    pub tss: SegmentSelector, // lower TSS slot (e.g., 0x28)
 }
 
-static TSS: Once<TaskStateSegment> = Once::new();
-static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
+// Lives forever; fill rsp0/ISTs elsewhere if needed before init().
+static TSS: TaskStateSegment = {
+    let t = TaskStateSegment::new();
+    t
+};
 
-#[inline(always)]
-fn ist1_top_u64() -> u64 {
-    const IST1_STACK_BYTES: usize = 4096 * 4;
-    let base = unsafe { addr_of!(IST1_STACK) as *const u8 as u64 };
-    base + IST1_STACK_BYTES as u64
-}
+// 'static singletons backed by spin::Once (Sync on no_std)
+static GDT: Once<GlobalDescriptorTable> = Once::new();
+static SELECTORS: Once<Selectors> = Once::new();
 
-fn build_tss() -> TaskStateSegment {
-    let mut tss = TaskStateSegment::new();
-    let top = ist1_top_u64();
-    tss.interrupt_stack_table[0] = VirtAddr::new(top);
-    tss
-}
-
-unsafe fn reload_cs_far(sel: SegmentSelector) {
-    CS::set_reg(sel);
-}
-
-fn read_tr() -> u16 {
-    let mut tr: u16 = 0;
-    unsafe {
-        core::arch::asm!("str {0:x}", out(reg) tr);
-    }
-    tr
-}
-
-pub fn init() {
-    // Build TSS once and keep it forever.
-    let tss_ref: &TaskStateSegment = TSS.call_once(build_tss);
-
-    // Build GDT once and keep it forever.
-    let (gdt, sel) = GDT.call_once(|| {
-        let mut g = GlobalDescriptorTable::new();
-        let code = g.append(Descriptor::kernel_code_segment());
-        let tss = g.append(Descriptor::tss_segment(tss_ref));
-        (g, Selectors { code, tss })
-    });
-
-    // Load GDT + TSS, then reload CS to the kernel code selector.
-    gdt.load();
-    unsafe {
-        instructions::tables::load_tss(sel.tss);
-        reload_cs_far(sel.code);
+/// Build + load the GDT once; return selectors. Safe to call multiple times.
+pub fn init() -> Selectors {
+    if let Some(s) = SELECTORS.get() {
+        return *s;
     }
 
-    println!("[GDT] TR={:#06x}", read_tr());
+    // Build temporary table, append entries (x86_64 = "0.15" uses `append`)
+    let mut tmp = GlobalDescriptorTable::new();
+    let code = tmp.append(Descriptor::kernel_code_segment());
+    let data = tmp.append(Descriptor::kernel_data_segment());
+    let tss = tmp.append(Descriptor::tss_segment(&TSS));
+
+    // Move table into 'static storage, then load from that &'static ref
+    let gdt_ref: &'static GlobalDescriptorTable = GDT.call_once(|| tmp);
+    unsafe {
+        gdt_ref.load();
+    }
+
+    let sels = Selectors { code, data, tss };
+    let sels_ref: &'static Selectors = SELECTORS.call_once(|| sels);
+    *sels_ref
 }
 
+// ---- Accessors used elsewhere ----
+#[inline]
+pub fn selectors() -> Selectors {
+    *SELECTORS.get().expect("gdt::init() not called")
+}
+#[inline]
 pub fn code_selector() -> SegmentSelector {
-    let (_gdt, sel) = GDT.wait();
-    sel.code
+    SELECTORS.get().unwrap().code
+}
+#[inline]
+pub fn data_selector() -> SegmentSelector {
+    SELECTORS.get().unwrap().data
+}
+#[inline]
+pub fn tss_selector() -> SegmentSelector {
+    SELECTORS.get().unwrap().tss
 }
