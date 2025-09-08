@@ -1,12 +1,15 @@
+use crate::apic::TIMER_VECTOR;
+use crate::arch::x86_64::{apic, gdt};
+use crate::println;
 use core::mem::size_of;
+use core::sync::atomic::{AtomicU32, Ordering};
 use spin::Once;
 use x86_64::VirtAddr;
+use x86_64::instructions::segmentation::Segment;
 use x86_64::instructions::tables::lidt;
 use x86_64::registers::control::Cr2;
-use x86_64::structures::DescriptorTablePointer;
-
-use crate::arch::x86_64::{apic, gdt};
-use crate::println; // <-- bring the println! macro into this module
+use x86_64::registers::segmentation::CS;
+use x86_64::structures::DescriptorTablePointer; // <-- bring the println! macro into this module
 
 // ---- IDT entry ----
 #[repr(C, packed)]
@@ -45,27 +48,27 @@ fn set_gate(
     dpl: u8,
 ) {
     let addr = handler as u64;
+    let cs = CS::get_reg().0;
+
     tbl[idx] = IdtEntry {
         off_lo: (addr & 0xFFFF) as u16,
-        sel: 0x08, // kernel CS
+        sel: cs,
         ist: ist & 0x7,
-        flags: 0b1000_1110 | ((dpl & 0b11) << 5), // P=1, DPL, Type=1110
+        flags: 0b1000_1110 | ((dpl & 0b11) << 5),
         off_mid: ((addr >> 16) & 0xFFFF) as u16,
         off_hi: ((addr >> 32) & 0xFFFF_FFFF) as u32,
         zero: 0,
     };
 }
 
-// ---- NASM stubs (unsafe externs) ----
 unsafe extern "C" {
     fn isr_default_stub();
     fn isr_gp_stub();
     fn isr_pf_stub();
     fn isr_ud_stub();
     fn isr_df_stub();
+    fn isr_timer_stub();
 }
-
-// ---- Rust handlers called by NASM (exported, C ABI) ----
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
@@ -93,9 +96,30 @@ pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     crate::println!("[INT] other vec={:#04x} err={:#018x}", vec, err);
 }
 
+/*
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
     println!("[#GP] err={:#018x}", err);
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+    */
+
+#[unsafe(no_mangle)]
+pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
+    let sel = (err & 0xFFFF) as u16;
+    let rpl = sel & 0b11;
+    let ti = (sel >> 2) & 1; // 0=GDT, 1=LDT
+    let idx = sel & !0b111; // index*8
+    crate::println!(
+        "[#GP] err={:#06x} sel={:#06x} idx={} TI={} RPL={}",
+        err as u16,
+        sel,
+        (idx >> 3),
+        ti,
+        rpl
+    );
     loop {
         x86_64::instructions::hlt();
     }
@@ -118,6 +142,19 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64) -> ! {
     }
 }
 
+static CTR: AtomicU32 = AtomicU32::new(0);
+
+#[unsafe(no_mangle)]
+pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) {
+    let v = CTR.fetch_add(1, Ordering::Relaxed) + 1;
+    if v % 1000 == 0 {
+        crate::println!("[tick] {}", v);
+    }
+    unsafe {
+        crate::arch::x86_64::apic::eoi();
+    }
+}
+
 // ---- Install and load IDT ----
 pub fn init() {
     let mut idt = [IdtEntry::missing(); 256];
@@ -132,6 +169,7 @@ pub fn init() {
     set_gate(&mut idt, 13, isr_gp_stub, 0, 0); // #GP
     set_gate(&mut idt, 14, isr_pf_stub, 0, 0); // #PF
     set_gate(&mut idt, 8, isr_df_stub, gdt::ist_index_df() as u8, 0); // #DF on IST1
+    set_gate(&mut idt, TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
 
     IDT.call_once(|| idt);
 

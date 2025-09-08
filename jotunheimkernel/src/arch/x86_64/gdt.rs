@@ -62,3 +62,8 @@ pub const fn ist_index_nmi() -> u16 {
 pub fn tss() -> &'static TaskStateSegment {
     TSS.get().unwrap()
 }
+
+pub fn kernel_cs_selector() -> u16 {
+    let (_gdt, sel) = GDT.get().expect("GDT not initialized");
+    sel.code.0
+}
