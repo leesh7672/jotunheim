@@ -2,12 +2,12 @@
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use x86_64::registers::segmentation::{CS, Segment};
 
 use crate::arch::x86_64::{apic, gdt};
-use crate::println;
+use crate::{println, sched};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -54,8 +54,6 @@ unsafe extern "C" {
     fn isr_timer_stub();
 }
 
-// Public counter (you use this from main.rs)
-pub static TICKS: AtomicU64 = AtomicU64::new(0);
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
 fn kernel_cs_u16() -> u16 {
@@ -179,6 +177,6 @@ pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) {
-    TICKS.fetch_add(1, Ordering::Relaxed);
+    sched::tick();
     apic::timer_isr_eoi_and_rearm_deadline();
 }

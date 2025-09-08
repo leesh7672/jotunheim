@@ -492,7 +492,10 @@ fn build_pagetables_exec(
         }
         va += 2 * 1024 * 1024;
     }
-
+    const IOAPIC_BASE: u64 = 0xFEC0_0000;
+    const LAPIC_BASE: u64 = 0xFEE0_0000;
+    map_4k_ident(pml4, IOAPIC_BASE, IOAPIC_BASE + 0x1000)?; // 4 KiB is enough
+    map_4k_ident(pml4, LAPIC_BASE, LAPIC_BASE + 0x1000)?;
     Ok(pml4_phys)
 }
 unsafe fn write_trampoline(

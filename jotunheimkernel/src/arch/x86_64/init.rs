@@ -1,5 +1,5 @@
 use crate::arch::x86_64::{apic, gdt, idt, ioapic, mmio_map};
-use crate::println;
+use crate::{println, sched};
 
 use x86_64::instructions;
 use x86_64::instructions::segmentation::{CS, Segment};
@@ -56,5 +56,6 @@ pub fn init_arch() {
 
     // 6) Enable interrupts + start timer
     instructions::interrupts::enable();
+    sched::init();
     apic::start_best_timer_hz(1_000);
 }
