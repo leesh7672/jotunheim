@@ -17,6 +17,8 @@ use xmas_elf::ElfFile;
 use xmas_elf::header::{Class, Data, Machine, Type as ElfType};
 use xmas_elf::program::Type as PhType;
 
+const IOAPIC_BASE: u64 = 0xFEC0_0000;
+const LAPIC_BASE: u64 = 0xFEE0_0000;
 #[global_allocator]
 static ALLOCATOR: uefi::allocator::Allocator = uefi::allocator::Allocator;
 
@@ -267,11 +269,15 @@ fn main() -> Status {
     if ident_hi < one_gib {
         ident_hi = one_gib;
     }
+    ident_hi = ident_hi
+        .max(IOAPIC_BASE + 0x1000) // 0xFEC0_1000
+        .max(LAPIC_BASE + 0x1000);
     slog!("[serial] ident_hi = 0x{:x}", ident_hi);
 
     slog!("[serial] building page tables …");
     let pml4_phys = build_pagetables_exec(load_base, min_vaddr, max_vaddr, ident_hi)
         .unwrap_or_else(|_| die(Status::OUT_OF_RESOURCES, &format_args!("paging failed")));
+
     slog!("[serial] pml4_phys = 0x{:x}", pml4_phys);
     log_step("paging ready");
 
@@ -492,10 +498,6 @@ fn build_pagetables_exec(
         }
         va += 2 * 1024 * 1024;
     }
-    const IOAPIC_BASE: u64 = 0xFEC0_0000;
-    const LAPIC_BASE: u64 = 0xFEE0_0000;
-    map_4k_ident(pml4, IOAPIC_BASE, IOAPIC_BASE + 0x1000)?; // 4 KiB is enough
-    map_4k_ident(pml4, LAPIC_BASE, LAPIC_BASE + 0x1000)?;
     Ok(pml4_phys)
 }
 unsafe fn write_trampoline(

@@ -60,6 +60,10 @@ fn kernel_cs_u16() -> u16 {
     gdt::code_selector().0
 }
 
+const IST_DF: u8 = 1; // uses interrupt_stack_table[0]
+const IST_PF: u8 = 2; // uses interrupt_stack_table[1]
+const IST_GP: u8 = 3; // uses interrupt_stack_table[2]
+
 fn set_gate_raw(
     idt_base: *mut IdtEntry,
     idx: usize,
@@ -117,15 +121,14 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
 
 pub fn init() {
     unsafe {
-        // Default all entries
         for v in 0..=255usize {
             set_gate(v, isr_default_stub, 0, 0);
         }
 
         // Faults + timer
-        set_gate(13, isr_gp_stub, 0, 0); // #GP
-        set_gate(14, isr_pf_stub, 0, 0); // #PF
-        set_gate(8, isr_df_stub, 1, 0); // #DF with IST1
+        set_gate(13, isr_gp_stub, IST_GP, 0); // #GP
+        set_gate(14, isr_pf_stub, IST_PF, 0); // #PF
+        set_gate(8, isr_df_stub, IST_DF, 0); // #DF with IST1
         set_gate(6, isr_ud_stub, 0, 0); // #UD
         set_gate(apic::TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
 
@@ -153,7 +156,9 @@ pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_pf_rust(_vec: u64, err: u64) -> ! {
-    crate::println!("[#PF] err={:#018x}", err);
+    use x86_64::registers::control::Cr2;
+    let va = Cr2::read().expect("CR2 read failed");
+    crate::println!("[#PF] err={:#018x} cr2={:#016x}", err, va.as_u64());
     loop {
         x86_64::instructions::hlt();
     }
