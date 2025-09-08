@@ -4,9 +4,12 @@ use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use crate::arch::x86_64::apic::{self, TIMER_VECTOR};
+use x86_64::registers::segmentation::{CS, Segment};
 
-#[repr(C, packed)]
+use crate::arch::x86_64::{apic, gdt};
+use crate::println;
+
+#[repr(C)]
 #[derive(Copy, Clone)]
 struct IdtEntry {
     offset_low: u16,
@@ -55,9 +58,9 @@ unsafe extern "C" {
 pub static TICKS: AtomicU64 = AtomicU64::new(0);
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
-// In long mode, a flat kernel code selector is usually 0x08.
-// Use that directly to avoid relying on CS::get_reg (not available on your crate version).
-const KERNEL_CS: u16 = 0x08;
+fn kernel_cs_u16() -> u16 {
+    gdt::code_selector().0
+}
 
 unsafe fn set_gate_raw(
     idt_base: *mut IdtEntry,
@@ -67,17 +70,15 @@ unsafe fn set_gate_raw(
     dpl: u8,
 ) {
     let h = handler as usize;
-
     let entry = IdtEntry {
         offset_low: (h & 0xFFFF) as u16,
-        selector: KERNEL_CS,
+        selector: kernel_cs_u16(), // <- use the real CS
         ist: ist & 0x7,
-        type_attr: 0x8E | ((dpl & 0x3) << 5), // present | interrupt gate | DPL
+        type_attr: 0x8E | ((dpl & 0x3) << 5),
         offset_mid: ((h >> 16) & 0xFFFF) as u16,
         offset_high: ((h >> 32) & 0xFFFF_FFFF) as u32,
         zero: 0,
     };
-
     core::ptr::write(idt_base.add(idx), entry);
 }
 
@@ -91,6 +92,18 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
         limit: (size_of::<IdtEntry>() * 256 - 1) as u16,
         base: ptr as u64,
     };
+    unsafe {
+        let cs_now = CS::get_reg().0;
+        let timer_gate =
+            core::ptr::read((addr_of!(IDT.0) as *const IdtEntry).add(apic::TIMER_VECTOR as usize));
+        println!(
+            "[IDT] CS now={:#06x}, timer.selector={:#06x}, type_attr={:#04x}, ist={}",
+            cs_now,
+            timer_gate.selector,
+            timer_gate.type_attr,
+            timer_gate.ist & 0x7
+        );
+    }
     core::arch::asm!(
         "lidt [{0}]",
         in(reg) &idtr,
@@ -110,7 +123,7 @@ pub fn init() {
         set_gate(14, isr_pf_stub, 0, 0); // #PF
         set_gate(8, isr_df_stub, 1, 0); // #DF with IST1
         set_gate(6, isr_ud_stub, 0, 0); // #UD
-        set_gate(TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
+        set_gate(apic::TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
 
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
         load_idt_ptr(idt_ptr);

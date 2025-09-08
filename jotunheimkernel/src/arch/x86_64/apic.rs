@@ -33,7 +33,7 @@ const REG_ISR0: u32 = 0x100;
 // Which vector is currently in-service (per LAPIC ISR registers).
 pub fn current_isr_vector() -> Option<u8> {
     for i in (0..8u32).rev() {
-        let v = unsafe { super::apic::apic_read(REG_ISR0 + i * 0x10) };
+        let v = unsafe { apic_read(REG_ISR0 + i * 0x10) };
         if v != 0 {
             let bit = 31 - v.leading_zeros();
             return Some((i * 32 + bit) as u8);

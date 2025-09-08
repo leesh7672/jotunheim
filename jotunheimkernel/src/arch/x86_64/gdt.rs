@@ -1,14 +1,16 @@
 #![allow(dead_code)]
 
-use core::arch::asm;
 use core::ptr::addr_of;
 
 use spin::Once;
+
 use x86_64::instructions::segmentation::Segment; // brings CS::set_reg into scope
 use x86_64::registers::segmentation::CS;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::{VirtAddr, instructions};
+
+use crate::println;
 
 // One IST stack for DF etc. (16 KiB)
 #[repr(align(16))]
@@ -39,8 +41,15 @@ fn build_tss() -> TaskStateSegment {
 }
 
 unsafe fn reload_cs_far(sel: SegmentSelector) {
-    // Use the trait method if available (cleaner & avoids inline asm)
     CS::set_reg(sel);
+}
+
+fn read_tr() -> u16 {
+    let mut tr: u16 = 0;
+    unsafe {
+        core::arch::asm!("str {0:x}", out(reg) tr);
+    }
+    tr
 }
 
 pub fn init() {
@@ -61,4 +70,11 @@ pub fn init() {
         instructions::tables::load_tss(sel.tss);
         reload_cs_far(sel.code);
     }
+
+    println!("[GDT] TR={:#06x}", read_tr());
+}
+
+pub fn code_selector() -> SegmentSelector {
+    let (_gdt, sel) = GDT.wait();
+    sel.code
 }
