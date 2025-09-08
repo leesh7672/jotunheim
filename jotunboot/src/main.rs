@@ -17,8 +17,6 @@ use xmas_elf::ElfFile;
 use xmas_elf::header::{Class, Data, Machine, Type as ElfType};
 use xmas_elf::program::Type as PhType;
 
-const IOAPIC_BASE: u64 = 0xFEC0_0000;
-const LAPIC_BASE: u64 = 0xFEE0_0000;
 #[global_allocator]
 static ALLOCATOR: uefi::allocator::Allocator = uefi::allocator::Allocator;
 
@@ -269,9 +267,9 @@ fn main() -> Status {
     if ident_hi < one_gib {
         ident_hi = one_gib;
     }
-    ident_hi = ident_hi
-        .max(IOAPIC_BASE + 0x1000) // 0xFEC0_1000
-        .max(LAPIC_BASE + 0x1000);
+
+    ident_hi = ident_hi.max(0xFEC0_0000 + 0x1000).max(0xFEE0_0000 + 0x1000);
+
     slog!("[serial] ident_hi = 0x{:x}", ident_hi);
 
     slog!("[serial] building page tables …");

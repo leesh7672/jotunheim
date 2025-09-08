@@ -1,15 +1,24 @@
-#![allow(unused)]
+#![allow(clippy::missing_safety_doc)]
 
-use crate::arch::x86_64::split_huge::split_huge_2m;
 use crate::mem::mapper::active_offset_mapper;
 use crate::mem::simple_alloc::TinyBump;
+use crate::println;
 
 use x86_64::structures::paging::{
-    FrameAllocator, Mapper, Page, PageTableFlags as F, PhysFrame, Size4KiB, mapper::MapToError,
+    FrameAllocator, Mapper, Page, PageTableFlags as F, PhysFrame, Size2MiB, Size4KiB,
+    mapper::MapToError,
 };
 use x86_64::{PhysAddr, VirtAddr};
 
+/// Errors from early APIC MMIO mapping.
+#[derive(Debug)]
+pub enum MmioMapErr {
+    Split,
+    Map(MapToError<Size4KiB>),
+}
+
 /// Map a single 4KiB page identity with UC (PCD|PWT), RW, NX.
+/// Treat `PageAlreadyMapped` as an error here; the caller can decide to ignore it.
 pub fn map_identity_uc<M, A>(
     mapper: &mut M,
     alloc: &mut A,
@@ -19,31 +28,158 @@ where
     M: Mapper<Size4KiB>,
     A: FrameAllocator<Size4KiB>,
 {
-    let pa = PhysAddr::new(phys & !0xfffu64);
+    let pa = PhysAddr::new(phys & !0xfff);
     let va = VirtAddr::new(pa.as_u64()); // identity
     let page = Page::<Size4KiB>::containing_address(va);
     let frame = PhysFrame::<Size4KiB>::containing_address(pa);
 
-    // UC via PCD|PWT; also mark GLOBAL to avoid unnecessary flushes
-    let flags =
-        F::PRESENT | F::WRITABLE | F::NO_EXECUTE | F::WRITE_THROUGH | F::NO_CACHE | F::GLOBAL;
-    unsafe { mapper.map_to(page, frame, flags, alloc)? }.flush();
-    Ok(())
-}
-/// Map LAPIC (0xFEE0_0000) + IOAPIC (0xFEC0_0000) as present, writable, UC.
-/// Must be called BEFORE apic::init() when running without x2APIC.
-pub fn early_map_mmio_for_apics() {
-    // Small scratch region for page tables (adjust if you need more)
-    let mut alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
+    // MMIO: present, RW, NX, uncacheable (PCD|PWT). Avoid GLOBAL to simplify flushes.
+    let flags = F::PRESENT | F::WRITABLE | F::NO_EXECUTE | F::WRITE_THROUGH | F::NO_CACHE;
 
-    // Get the active offset mapper; 0 if your phys=virt for low memory
+    // SAFETY: we are managing the early kernel page tables consciously here.
+    match unsafe { mapper.map_to(page, frame, flags, alloc) } {
+        Ok(flush) => {
+            flush.flush();
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Ensure the PTE at `va` has our desired MMIO flags (no GLOBAL, UC).
+fn enforce_mmio_flags<M: Mapper<Size4KiB>>(mapper: &mut M, va: u64) {
+    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
+    let want = F::PRESENT | F::WRITABLE | F::NO_EXECUTE | F::WRITE_THROUGH | F::NO_CACHE;
+    unsafe {
+        if let Ok(flush) = mapper.update_flags(page, want) {
+            flush.flush();
+        }
+    }
+}
+
+fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
+    let page2m = Page::<Size2MiB>::containing_address(VirtAddr::new(va_2m));
+    // MMIO via PDE (PS=1): P | RW | NX | PWT | PCD  (no GLOBAL)
+    let want = F::PRESENT | F::WRITABLE | F::NO_EXECUTE | F::WRITE_THROUGH | F::NO_CACHE;
+    unsafe {
+        if let Ok(flush) = mapper.update_flags(page2m, want) {
+            flush.flush();
+        }
+    }
+}
+
+pub fn early_map_mmio_for_apics() -> Result<(), MmioMapErr> {
+    let mut alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
     let mut mapper = unsafe { active_offset_mapper(0) };
 
-    // Split any covering 2MiB huge pages so the 4KiB MMIO pages can be mapped
-    let _ = split_huge_2m(&mut mapper, &mut alloc, 0xFEC0_0000);
-    let _ = split_huge_2m(&mut mapper, &mut alloc, 0xFEE0_0000);
+    // --- FAST PATH: keep the loader’s 2 MiB identity mapping ---
+    // Attempt to update flags on the existing 2 MiB PDEs, then flush TLBs.
+    enforce_mmio_flags_2m(&mut mapper, 0xFEC0_0000);
+    enforce_mmio_flags_2m(&mut mapper, 0xFEE0_0000);
 
-    // Identity map IOAPIC + LAPIC as uncacheable
-    let _ = map_identity_uc(&mut mapper, &mut alloc, 0xFEC0_0000);
-    let _ = map_identity_uc(&mut mapper, &mut alloc, 0xFEE0_0000);
+    // TLB shootdown (covers any 2 MiB entries, with global toggle too)
+    use x86_64::instructions::tlb;
+    use x86_64::registers::control::{Cr3, Cr4, Cr4Flags};
+    unsafe {
+        tlb::flush(VirtAddr::new(0xFEC0_0000));
+        tlb::flush(VirtAddr::new(0xFEE0_0000));
+        let (cr3, flags) = Cr3::read();
+        Cr3::write(cr3, flags);
+        let cr4 = Cr4::read();
+        if cr4.contains(Cr4Flags::PAGE_GLOBAL) {
+            Cr4::write(cr4 - Cr4Flags::PAGE_GLOBAL);
+            Cr4::write(cr4 | Cr4Flags::PAGE_GLOBAL);
+        }
+    }
+
+    // That’s enough for early APIC bring-up. If you later *need* 4 KiB UC pages,
+    // you can perform the split after you’ve switched to your own CR3 and things are calm.
+
+    Ok(())
+}
+
+/* -------------------- Debug helpers: dump current mapping -------------------- */
+
+#[derive(Copy, Clone)]
+struct Levels {
+    pml4e: u64,
+    pdpte: Option<u64>,
+    pde: Option<u64>,
+    pte: Option<u64>,
+}
+
+// Walk the current tables (CR3) and collect entries for a VA.
+// `phys_offset` is the virtual base where physical memory is linearly mapped.
+// While on the loader tables, this is 0 (identity).
+fn dump_va_mapping(va: u64, phys_offset: u64) -> Levels {
+    use x86_64::{VirtAddr, registers::control::Cr3};
+
+    // Convert a physical page-table address to a virtual pointer using the window.
+    unsafe fn phys_to_virt(phys: u64, phys_offset: u64) -> *const u64 {
+        ((phys & !0xfff) + phys_offset) as *const u64
+    }
+
+    let (pml4_frame, _) = Cr3::read();
+    let pml4_phys = pml4_frame.start_address().as_u64();
+
+    let mut out = Levels {
+        pml4e: 0,
+        pdpte: None,
+        pde: None,
+        pte: None,
+    };
+
+    let v = VirtAddr::new(va);
+    let pml4i = ((v.as_u64() >> 39) & 0x1ff) as usize;
+    let pdpti = ((v.as_u64() >> 30) & 0x1ff) as usize;
+    let pdi = ((v.as_u64() >> 21) & 0x1ff) as usize;
+    let pti = ((v.as_u64() >> 12) & 0x1ff) as usize;
+
+    unsafe {
+        let pml4 = phys_to_virt(pml4_phys, phys_offset);
+        let pml4e = *pml4.add(pml4i);
+        out.pml4e = pml4e;
+
+        if pml4e & 1 == 0 {
+            return out;
+        }
+        let pdpt_phys = pml4e & 0x000F_FFFF_FFFF_F000;
+        let pdpt = phys_to_virt(pdpt_phys, phys_offset);
+        let pdpte = *pdpt.add(pdpti);
+        out.pdpte = Some(pdpte);
+
+        if pdpte & 1 == 0 {
+            return out;
+        }
+        if pdpte & (1 << 7) != 0 {
+            // 1GiB large page
+            return out;
+        }
+        let pd_phys = pdpte & 0x000F_FFFF_FFFF_F000;
+        let pd = phys_to_virt(pd_phys, phys_offset);
+        let pde = *pd.add(pdi);
+        out.pde = Some(pde);
+
+        if pde & 1 == 0 {
+            return out;
+        }
+        if pde & (1 << 7) != 0 {
+            // 2MiB large page
+            return out;
+        }
+        let pt_phys = pde & 0x000F_FFFF_FFFF_F000;
+        let pt = phys_to_virt(pt_phys, phys_offset);
+        let pte = *pt.add(pti);
+        out.pte = Some(pte);
+    }
+
+    out
+}
+
+pub fn log_va_mapping(tag: &str, va: u64, phys_offset: u64) {
+    let lev = dump_va_mapping(va, phys_offset);
+    println!(
+        "[PT] {tag} VA={:#016x} PML4E={:#018x} PDPTE={:?} PDE={:?} PTE={:?}",
+        va, lev.pml4e, lev.pdpte, lev.pde, lev.pte
+    );
 }
