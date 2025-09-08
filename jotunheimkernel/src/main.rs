@@ -25,6 +25,7 @@ mod arch {
 use arch::x86_64::{apic, gdt, idt, ioapic, serial};
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
+use core::sync::atomic::Ordering;
 
 use crate::arch::x86_64::{mmio_map::map_identity_uc, split_huge::split_huge_2m};
 use crate::mem::mapper::active_offset_mapper;
@@ -76,10 +77,19 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
     println!("[JOTUNHEIM] Interrupts are enabled.");
 
-    apic::start_best_timer_hz(1000);
-    println!("[JOTUNHEIM] LAPIC timer started (periodic 1kHz).");
+    apic::start_best_timer_hz(1);
+
+    let mut last = 0u64;
 
     loop {
+        let cur = idt::TICKS.load(Ordering::Relaxed);
+
+        if cur.wrapping_sub(last) >= 1000 {
+            last = cur;
+            x86_64::instructions::interrupts::without_interrupts(|| {
+                crate::println!("[tick] {}", cur);
+            });
+        }
         x86_64::instructions::hlt();
     }
 }

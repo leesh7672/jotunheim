@@ -1,4 +1,6 @@
 use core::mem::size_of;
+use core::sync::atomic::{AtomicU64, Ordering};
+
 use spin::Once;
 
 use x86_64::VirtAddr;
@@ -115,19 +117,14 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64) -> ! {
     }
 }
 
+pub static TICKS: AtomicU64 = AtomicU64::new(0);
+// in idt.rs
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) {
-    use core::sync::atomic::{AtomicU32, Ordering};
-    static CTR: AtomicU32 = AtomicU32::new(0);
+    // EOI (and re-arm if TSC-deadline)
+    crate::arch::x86_64::apic::timer_isr_eoi_and_rearm_deadline();
 
-    let v = CTR.fetch_add(1, Ordering::Relaxed) + 1;
-    if v % 1000 == 0 {
-        println!("[tick] {}", v);
-    }
-
-    unsafe {
-        apic::eoi();
-    }
+    TICKS.fetch_add(1, Ordering::Relaxed);
 }
 
 // ---- Install and load IDT ----
