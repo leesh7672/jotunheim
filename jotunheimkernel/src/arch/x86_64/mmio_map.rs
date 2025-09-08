@@ -5,10 +5,10 @@ use crate::mem::simple_alloc::TinyBump;
 use crate::println;
 
 use x86_64::structures::paging::{
-    FrameAllocator, Mapper, Page, PageTableFlags as F, PhysFrame, Size2MiB, Size4KiB,
+    Mapper, Page, PageTableFlags as F, Size2MiB, Size4KiB,
     mapper::MapToError,
 };
-use x86_64::{PhysAddr, VirtAddr};
+use x86_64::VirtAddr;
 
 /// Errors from early APIC MMIO mapping.
 #[derive(Debug)]
@@ -38,7 +38,7 @@ pub fn early_map_mmio_for_apics() -> Result<(), MmioMapErr> {
     enforce_mmio_flags_2m(&mut mapper, 0xFEE0_0000);
 
     // TLB shootdown (covers any 2 MiB entries, with global toggle too)
-    use x86_64::registers::control::{Cr3, Cr4, Cr4Flags};
+    use x86_64::registers::control::Cr3;
     unsafe {
         let (cr3, flags) = Cr3::read();
         Cr3::write(cr3, flags); // flush non-global

@@ -244,7 +244,7 @@ pub fn exit_current() -> ! {
         x86_64::instructions::hlt();
     }
 }
-use core::mem::{size_of, transmute};
+use core::mem::size_of;
 
 pub fn ctx_layout_sanity() {
     // size

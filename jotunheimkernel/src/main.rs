@@ -24,7 +24,6 @@ mod arch {
 }
 
 use core::panic::PanicInfo;
-use x86_64::registers::control::Cr2;
 
 static mut DEMO_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 
