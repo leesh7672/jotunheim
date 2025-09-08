@@ -95,10 +95,10 @@ fn main() -> Status {
             }
         }
     }
-    log_step("loader start v0.7");
+    log_step("loader start.");
 
     // ---- FS & read kernel ----
-    serial_line("[serial] acquiring FileSystem…");
+    serial_line("[serial] acquiring FileSystem.");
     let image = boot::image_handle();
     let mut fs: FileSystem = match boot::get_image_file_system(image) {
         Ok(p) => {
@@ -113,7 +113,7 @@ fn main() -> Status {
     log_step("fs ok");
 
     let elf_path = Path::new(cstr16!(r"\JOTUNHEIM\KERNEL.ELF"));
-    serial_line("[serial] reading \\JOTUNHEIM\\KERNEL.ELF …");
+    serial_line("[serial] reading \\JOTUNHEIM\\KERNEL.ELF.");
     let elf_bytes: Vec<u8> = match fs.read(elf_path) {
         Ok(v) => {
             slog!("[serial] kernel bytes = {}", v.len());

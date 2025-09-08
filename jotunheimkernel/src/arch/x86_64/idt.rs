@@ -1,11 +1,12 @@
+// arch/x86_64/idt.rs
+#![allow(clippy::missing_safety_doc)]
+
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use x86_64::instructions::segmentation::Segment;
 use x86_64::registers::segmentation::CS;
-
-use spin::Once;
 
 use crate::arch::x86_64::apic::{self, TIMER_VECTOR};
 
@@ -34,7 +35,7 @@ const fn empty_entry() -> IdtEntry {
 }
 
 #[repr(C, packed)]
-struct Idtr {
+pub struct Idtr {
     limit: u16,
     base: u64,
 }
@@ -44,6 +45,7 @@ struct Idt([IdtEntry; 256]);
 
 static mut IDT: Idt = Idt([empty_entry(); 256]);
 
+// NASM stubs
 unsafe extern "C" {
     fn isr_default_stub();
     fn isr_gp_stub();
@@ -53,6 +55,7 @@ unsafe extern "C" {
     fn isr_timer_stub();
 }
 
+// Public tick counter (read from main.rs)
 pub static TICKS: AtomicU64 = AtomicU64::new(0);
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
@@ -64,13 +67,16 @@ unsafe fn set_gate_raw(
     dpl: u8,
 ) {
     let h = handler as usize;
-    let cs = CS::get_reg().0 as u16;
+
+    // IMPORTANT: use the KERNEL CODE SEGMENT selector, not CS::get_reg(),
+    // and DEFINITELY not a TSS selector like 0x30.
+    let cs: u16 = 0x08; // replace later with gdt::kernel_cs_selector()
 
     let entry = IdtEntry {
         offset_low: (h & 0xFFFF) as u16,
         selector: cs,
         ist: ist & 0x7,
-        type_attr: 0x8E | ((dpl & 0x3) << 5),
+        type_attr: 0x8E | ((dpl & 0x3) << 5), // present + interrupt gate + DPL
         offset_mid: ((h >> 16) & 0xFFFF) as u16,
         offset_high: ((h >> 32) & 0xFFFF_FFFF) as u32,
         zero: 0,
@@ -103,8 +109,8 @@ pub fn init() {
         }
         set_gate(13, isr_gp_stub, 0, 0);
         set_gate(14, isr_pf_stub, 0, 0);
+        // Only use IST=1 if GDT/TSS set IST1 valid; else pass 0.
         set_gate(8, isr_df_stub, 1, 0);
-        set_gate(6, isr_ud_stub, 0, 0);
         set_gate(TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
 
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
@@ -112,16 +118,17 @@ pub fn init() {
     }
 }
 
+// ---------- Rust ISR targets ----------
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     if !THROTTLED_ONCE.swap(true, Ordering::Relaxed) {
-        crate::println!("[INT] default vec={:#04x} err={:#018x}", vec, err);
+        crate::println!("[INT] vec={:#04x} err={:#018x}", vec, err);
     }
     unsafe { apic::eoi() };
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_gp_rust(_: u64, err: u64) -> ! {
+pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
     crate::println!("[#GP] err={:#018x}", err);
     loop {
         x86_64::instructions::hlt();
@@ -129,7 +136,7 @@ pub extern "C" fn isr_gp_rust(_: u64, err: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_pf_rust(_: u64, err: u64) -> ! {
+pub extern "C" fn isr_pf_rust(_vec: u64, err: u64) -> ! {
     crate::println!("[#PF] err={:#018x}", err);
     loop {
         x86_64::instructions::hlt();
@@ -137,7 +144,7 @@ pub extern "C" fn isr_pf_rust(_: u64, err: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_df_rust(_: u64, _: u64) -> ! {
+pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
     crate::println!("[#DF] double fault");
     loop {
         x86_64::instructions::hlt();
@@ -145,7 +152,7 @@ pub extern "C" fn isr_df_rust(_: u64, _: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_ud_rust(_: u64, _: u64) -> ! {
+pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64) -> ! {
     crate::println!("[#UD] invalid opcode");
     loop {
         x86_64::instructions::hlt();
@@ -153,10 +160,7 @@ pub extern "C" fn isr_ud_rust(_: u64, _: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust(_: u64, _: u64) {
-    let n = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
-    if n % 1000 == 0 {
-        crate::println!("[lapic] {} ms", n);
-    }
+pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) {
+    TICKS.fetch_add(1, Ordering::Relaxed);
     apic::timer_isr_eoi_and_rearm_deadline();
 }
