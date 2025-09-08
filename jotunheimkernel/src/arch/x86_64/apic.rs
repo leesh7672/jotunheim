@@ -253,20 +253,23 @@ fn tpr_write(val: u32) {
     }
 }
 
-pub unsafe fn lvt_timer_mask(mask: bool) {
-    let mut v = lvt_timer_read(); // read current LVT
+#[inline(always)]
+pub fn lvt_timer_read() -> u32 {
+    unsafe { apic_read(REG_LVT_TIMER) }
+}
+
+#[inline(always)]
+pub fn lvt_timer_write(val: u32) {
+    unsafe { apic_write(REG_LVT_TIMER, val) }
+}
+
+#[inline(always)]
+pub fn lvt_timer_mask(mask: bool) {
+    let mut v = lvt_timer_read();
     if mask {
         v |= 1 << 16;
     } else {
         v &= !(1 << 16);
     }
-    lvt_timer_write(v); // write it back
-}
-
-pub unsafe fn lvt_timer_read() -> u32 {
-    apic_read(REG_LVT_TIMER)
-}
-
-pub unsafe fn lvt_timer_write(val: u32) {
-    apic_write(REG_LVT_TIMER, val)
+    lvt_timer_write(v);
 }

@@ -1,5 +1,5 @@
 use core::mem::size_of;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use spin::Once;
 
@@ -118,13 +118,20 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64) -> ! {
 }
 
 pub static TICKS: AtomicU64 = AtomicU64::new(0);
+static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 // in idt.rs
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) {
     // EOI (and re-arm if TSC-deadline)
     crate::arch::x86_64::apic::timer_isr_eoi_and_rearm_deadline();
 
-    TICKS.fetch_add(1, Ordering::Relaxed);
+    let ticks = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+
+    if ticks == 16 && !THROTTLED_ONCE.swap(true, Ordering::Relaxed) {
+        unsafe {
+            crate::arch::x86_64::apic::lvt_timer_mask(true);
+        }
+    }
 }
 
 // ---- Install and load IDT ----
@@ -141,8 +148,6 @@ pub fn init() {
     set_gate(&mut idt, 13, isr_gp_stub, 0, 0); // #GP
     set_gate(&mut idt, 14, isr_pf_stub, 0, 0); // #PF
     set_gate(&mut idt, 8, isr_df_stub, gdt::ist_index_df() as u8, 0); // #DF on IST1
-
-    // LAPIC timer at TIMER_VECTOR (we’ll use 0x20)
     set_gate(&mut idt, apic::TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
 
     IDT.call_once(|| idt);

@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(abi_x86_interrupt)]
 
 mod bootinfo;
 mod util;
@@ -77,18 +76,22 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
     println!("[JOTUNHEIM] Interrupts are enabled.");
 
-    apic::start_best_timer_hz(1);
+    apic::start_timer_periodic_hz(100);
 
+    println!("[JOTUNHEIM] Timer starts.");
     let mut last = 0u64;
-
+    let mut rearmed = false;
     loop {
         let cur = idt::TICKS.load(Ordering::Relaxed);
-
-        if cur.wrapping_sub(last) >= 1000 {
+        if cur.wrapping_sub(last) >= 16 && !rearmed {
             last = cur;
             x86_64::instructions::interrupts::without_interrupts(|| {
                 crate::println!("[tick] {}", cur);
             });
+            unsafe {
+                crate::arch::x86_64::apic::lvt_timer_mask(false);
+            }
+            rearmed = true;
         }
         x86_64::instructions::hlt();
     }
