@@ -19,12 +19,12 @@ mod arch {
         pub mod ioapic;
         pub mod mmio_map;
         pub mod serial;
-        pub mod split_huge;
         pub mod tsc;
     }
 }
 
 use core::panic::PanicInfo;
+use x86_64::registers::control::Cr2;
 
 static mut DEMO_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 
@@ -38,12 +38,12 @@ pub extern "C" fn _start() -> ! {
     println!("[JOTUNHEIM] Kernel starts.");
 
     crate::arch::x86_64::init::init_arch();
-
     crate::arch::x86_64::apic::snapshot_debug();
 
     let ptr = core::ptr::addr_of_mut!(DEMO_STACK) as *mut u8;
     const DEMO_STACK_LEN: usize = 16 * 1024;
-    crate::sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
+    sched::ctx_layout_sanity();
+    sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
 
     x86_64::instructions::interrupts::enable();
     crate::sched::yield_now();
@@ -55,7 +55,7 @@ pub extern "C" fn _start() -> ! {
 extern "C" fn kthread_demo(_arg: usize) -> ! {
     loop {
         println!("[Threading]");
-        crate::sched::yield_now();
+        sched::yield_now();
     }
 }
 

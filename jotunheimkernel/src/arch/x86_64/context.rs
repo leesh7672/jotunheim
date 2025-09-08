@@ -1,7 +1,6 @@
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct CpuContext {
-    // Callee-saved GPRs + rbp + rip saved by switch
     pub r15: u64,
     pub r14: u64,
     pub r13: u64,
@@ -16,7 +15,6 @@ unsafe extern "C" {
     fn __ctx_switch(prev: *mut CpuContext, next: *const CpuContext);
 }
 
-#[inline(always)]
 pub unsafe fn switch(prev: *mut CpuContext, next: *const CpuContext) {
     unsafe {
         __ctx_switch(prev, next);

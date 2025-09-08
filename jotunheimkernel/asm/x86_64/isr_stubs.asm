@@ -92,11 +92,15 @@ isr_gp_stub:
 ; ---------------- #PF (vector 14) — has error code ----------------
 isr_pf_stub:
     PUSH_VOLATILES
-    mov rdi, 14
-    mov rsi, [rsp + 9*8 + 0x00]
+    mov     rdi, 14                  ; vec
+
+    mov     rsi, [rsp + 9*8 + 0x00]  ; err
+    mov     rdx, [rsp + 9*8 + 0x08]  ; rip
+
     ALIGN_BEFORE_CALL
-    call isr_pf_rust           ; does not return
+    call    isr_pf_rust             ; does not return
     UNALIGN_AFTER_CALL
+
 .hang_pf:
     cli
     hlt

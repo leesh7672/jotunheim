@@ -17,46 +17,6 @@ pub enum MmioMapErr {
     Map(MapToError<Size4KiB>),
 }
 
-/// Map a single 4KiB page identity with UC (PCD|PWT), RW, NX.
-/// Treat `PageAlreadyMapped` as an error here; the caller can decide to ignore it.
-pub fn map_identity_uc<M, A>(
-    mapper: &mut M,
-    alloc: &mut A,
-    phys: u64,
-) -> Result<(), MapToError<Size4KiB>>
-where
-    M: Mapper<Size4KiB>,
-    A: FrameAllocator<Size4KiB>,
-{
-    let pa = PhysAddr::new(phys & !0xfff);
-    let va = VirtAddr::new(pa.as_u64()); // identity
-    let page = Page::<Size4KiB>::containing_address(va);
-    let frame = PhysFrame::<Size4KiB>::containing_address(pa);
-
-    // MMIO: present, RW, NX, uncacheable (PCD|PWT). Avoid GLOBAL to simplify flushes.
-    let flags = F::PRESENT | F::WRITABLE | F::NO_EXECUTE | F::WRITE_THROUGH | F::NO_CACHE;
-
-    // SAFETY: we are managing the early kernel page tables consciously here.
-    match unsafe { mapper.map_to(page, frame, flags, alloc) } {
-        Ok(flush) => {
-            flush.flush();
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// Ensure the PTE at `va` has our desired MMIO flags (no GLOBAL, UC).
-fn enforce_mmio_flags<M: Mapper<Size4KiB>>(mapper: &mut M, va: u64) {
-    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
-    let want = F::PRESENT | F::WRITABLE | F::NO_EXECUTE | F::WRITE_THROUGH | F::NO_CACHE;
-    unsafe {
-        if let Ok(flush) = mapper.update_flags(page, want) {
-            flush.flush();
-        }
-    }
-}
-
 fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
     let page2m = Page::<Size2MiB>::containing_address(VirtAddr::new(va_2m));
     // MMIO via PDE (PS=1): P | RW | NX | PWT | PCD  (no GLOBAL)
@@ -69,7 +29,7 @@ fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
 }
 
 pub fn early_map_mmio_for_apics() -> Result<(), MmioMapErr> {
-    let mut alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
+    let alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
     let mut mapper = unsafe { active_offset_mapper(0) };
 
     // --- FAST PATH: keep the loader’s 2 MiB identity mapping ---
@@ -78,18 +38,10 @@ pub fn early_map_mmio_for_apics() -> Result<(), MmioMapErr> {
     enforce_mmio_flags_2m(&mut mapper, 0xFEE0_0000);
 
     // TLB shootdown (covers any 2 MiB entries, with global toggle too)
-    use x86_64::instructions::tlb;
     use x86_64::registers::control::{Cr3, Cr4, Cr4Flags};
     unsafe {
-        tlb::flush(VirtAddr::new(0xFEC0_0000));
-        tlb::flush(VirtAddr::new(0xFEE0_0000));
         let (cr3, flags) = Cr3::read();
-        Cr3::write(cr3, flags);
-        let cr4 = Cr4::read();
-        if cr4.contains(Cr4Flags::PAGE_GLOBAL) {
-            Cr4::write(cr4 - Cr4Flags::PAGE_GLOBAL);
-            Cr4::write(cr4 | Cr4Flags::PAGE_GLOBAL);
-        }
+        Cr3::write(cr3, flags); // flush non-global
     }
 
     // That’s enough for early APIC bring-up. If you later *need* 4 KiB UC pages,
