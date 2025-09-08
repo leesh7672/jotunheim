@@ -194,38 +194,37 @@ pub fn start_timer_deadline_hz(hz: u32) {
 /// Periodic mode: calibrate with masked LVT, then program periodic vector
 /// and initial count, THEN drop priorities once.
 pub fn start_timer_periodic_hz(hz: u32) {
-    const DIV: u32 = 0x3; // divide by 16
-    const CAL_MS: u64 = 50; // short calibration window
+    const DIV: u32 = 0x3; // ÷16
+    const CAL_MS: u64 = 50;
 
     unsafe {
-        // 0) Divider first
         apic_write(REG_DIVIDE, DIV);
 
-        // 1) Mask the timer and start a free-running countdown at max
+        // Mask while calibrating
         apic_write(REG_LVT_TIMER, LVT_MASKED);
         apic_write(REG_INIT_CNT, 0xFFFF_FFFF);
 
-        // 2) Micro-calibration window using TSC
-        let tsc_hz = tsc::tsc_hz_estimate();
+        // short TSC-based calibration
+        let tsc_hz = crate::arch::x86_64::tsc::tsc_hz_estimate();
         let target = (tsc_hz / 1000) * CAL_MS;
-        let t0 = tsc::rdtsc();
-        while tsc::rdtsc().wrapping_sub(t0) < target {
+        let t0 = crate::arch::x86_64::tsc::rdtsc();
+        while crate::arch::x86_64::tsc::rdtsc().wrapping_sub(t0) < target {
             core::hint::spin_loop();
         }
 
-        // 3) Convert elapsed APIC ticks to a periodic initial count
-        let remained = apic_read(REG_CURR_CNT);
-        let elapsed = 0xFFFF_FFFFu32.wrapping_sub(remained);
+        // compute initial count
+        let cur = apic_read(REG_CURR_CNT);
+        let elapsed = 0xFFFF_FFFFu32.wrapping_sub(cur);
         let ticks_per_ms = (elapsed as u64) / CAL_MS;
         let want_ms = 1000u64 / (hz as u64);
         let init = core::cmp::max(1, (ticks_per_ms * want_ms) as u32);
 
-        // 4) Program periodic mode at our vector and set initial count
+        // Program periodic and UNMASK
         apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | LVT_PERIODIC);
         apic_write(REG_INIT_CNT, init);
     }
 
-    // 5) Open priorities exactly once
+    // drop TPR once so TIMER_VECTOR (0x20) can be delivered
     tpr_write(0x00);
 }
 
@@ -272,4 +271,53 @@ pub fn lvt_timer_mask(mask: bool) {
         v &= !(1 << 16);
     }
     lvt_timer_write(v);
+}
+
+// --- add near the top of apic.rs ---
+#[derive(Copy, Clone)]
+pub struct ApicSnapshot {
+    pub mode: &'static str,
+    pub svr: u32,
+    pub tpr: u32,
+    pub lvt_timer: u32,
+    pub divide: u32,
+    pub curr_cnt: u32,
+    pub init_cnt: u32,
+}
+
+pub fn snapshot_debug() {
+    unsafe {
+        let lvt = match MODE {
+            Mode::XApic { base } => read_mmio(base, REG_LVT_TIMER),
+            Mode::X2Apic => msr_read_u32(x2(REG_LVT_TIMER)),
+        };
+        let div = match MODE {
+            Mode::XApic { base } => read_mmio(base, REG_DIVIDE),
+            Mode::X2Apic => msr_read_u32(x2(REG_DIVIDE)),
+        };
+        let init = match MODE {
+            Mode::XApic { base } => read_mmio(base, REG_INIT_CNT),
+            Mode::X2Apic => msr_read_u32(x2(REG_INIT_CNT)),
+        };
+        let cur = match MODE {
+            Mode::XApic { base } => read_mmio(base, REG_CURR_CNT),
+            Mode::X2Apic => msr_read_u32(x2(REG_CURR_CNT)),
+        };
+        crate::println!(
+            "[APIC] LVT={:#010x} DIV={:#010x} INIT={:#010x} CUR={:#010x}",
+            lvt,
+            div,
+            init,
+            cur
+        );
+    }
+}
+
+pub fn open_all_irqs() {
+    unsafe {
+        match MODE {
+            Mode::XApic { .. } => apic_write(REG_TPR, 0x00),
+            Mode::X2Apic => Msr::new(0x808).write(0x00),
+        }
+    }
 }

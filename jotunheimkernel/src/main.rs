@@ -29,7 +29,7 @@ use core::sync::atomic::Ordering;
 use crate::arch::x86_64::{mmio_map::map_identity_uc, split_huge::split_huge_2m};
 use crate::mem::mapper::active_offset_mapper;
 use crate::mem::simple_alloc::TinyBump;
-// somewhere global
+
 static mut ALLOC: TinyBump = TinyBump::new(0x0030_0000, 0x0031_0000);
 
 pub fn early_map_mmio_for_apics() {
@@ -68,31 +68,27 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     apic::init();
     println!("[JOTUNHEIM] APIC is initialised.");
 
+    apic::open_all_irqs();
+
     unsafe {
         ioapic::mask_all();
     }
+
     println!("[JOTUNHEIM] IOAPIC is masked all.");
 
     x86_64::instructions::interrupts::enable();
     println!("[JOTUNHEIM] Interrupts are enabled.");
 
-    apic::start_timer_periodic_hz(100);
-
+    apic::start_best_timer_hz(1_000);
     println!("[JOTUNHEIM] Timer starts.");
+
+    apic::snapshot_debug();
+
     let mut last = 0u64;
-    let mut rearmed = false;
     loop {
         let cur = idt::TICKS.load(Ordering::Relaxed);
-        if cur.wrapping_sub(last) >= 16 && !rearmed {
-            last = cur;
-            x86_64::instructions::interrupts::without_interrupts(|| {
-                crate::println!("[tick] {}", cur);
-            });
-            unsafe {
-                crate::arch::x86_64::apic::lvt_timer_mask(false);
-            }
-            rearmed = true;
-        }
+        last = cur;
+        crate::println!("[tick] {}", cur);
         x86_64::instructions::hlt();
     }
 }
