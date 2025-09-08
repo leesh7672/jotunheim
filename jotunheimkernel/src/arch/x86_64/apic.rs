@@ -7,7 +7,7 @@ use x86_64::registers::model_specific::Msr;
 use crate::arch::x86_64::tsc;
 
 pub const SPURIOUS_VECTOR: u8 = 0xFF;
-pub const TIMER_VECTOR: u8 = 0x40; // Safe zone, away from 0x20..=0x2F legacy PIC
+pub const TIMER_VECTOR: u8 = 0x20; // Safe zone, away from 0x20..=0x2F legacy PIC
 
 // MSRs
 const IA32_APIC_BASE: u32 = 0x1B;

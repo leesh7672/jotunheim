@@ -76,7 +76,7 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
     println!("[JOTUNHEIM] Interrupts are enabled.");
 
-    apic::start_timer_periodic_hz(1000);
+    apic::start_best_timer_hz(1000);
     println!("[JOTUNHEIM] LAPIC timer started (periodic 1kHz).");
 
     loop {

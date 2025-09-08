@@ -72,28 +72,9 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
-    // Spurious LAPIC vector (0xFF) happens right after enable — ignore it.
-    if vec == 0xFF {
-        static mut SEEN: bool = false;
-        unsafe {
-            if !SEEN {
-                crate::println!("[INT] spurious vec=0xff err={:#018x}", err);
-                SEEN = true;
-            }
-        }
-        // No EOI for spurious; just return.
-        return;
+    unsafe {
+        crate::arch::x86_64::apic::eoi();
     }
-
-    // APIC IRQs (>= 0x20) need EOI; exceptions (< 0x20) do not.
-    if vec >= 0x20 {
-        unsafe {
-            crate::arch::x86_64::apic::eoi();
-        }
-    }
-
-    // Optional: lightweight log for anything else
-    crate::println!("[INT] other vec={:#04x} err={:#018x}", vec, err);
 }
 
 /*
