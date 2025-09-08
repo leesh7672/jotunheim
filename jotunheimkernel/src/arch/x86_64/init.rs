@@ -1,4 +1,4 @@
-use crate::arch::x86_64::{apic, gdt, idt, ioapic};
+use crate::arch::x86_64::{apic, gdt, idt, ioapic, mmio_map};
 use crate::println;
 
 use x86_64::instructions;
@@ -37,6 +37,7 @@ pub fn init_arch() {
     // 3) IDT after CS/DS/SS/TSS are valid
     idt::init();
 
+    mmio_map::early_map_mmio_for_apics();
     // 4) APIC bring-up
     apic::init();
     unsafe {
