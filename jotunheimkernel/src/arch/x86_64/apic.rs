@@ -150,7 +150,6 @@ pub fn init() {
         // 5) Accept all priorities (TPR = 0).
         match MODE {
             Mode::XApic { .. } => apic_write(REG_TPR, 0),
-            // x2APIC TPR is MSR 0x808
             Mode::X2Apic => Msr::new(0x808).write(0),
         }
 
@@ -160,6 +159,7 @@ pub fn init() {
         apic_write(REG_LVT_LINT1, LVT_MASKED);
         apic_write(REG_LVT_ERROR, LVT_MASKED);
     }
+    tpr_write(0xFF);
 }
 
 /// Start the best available timer at `hz`.
@@ -181,6 +181,14 @@ pub fn start_timer_deadline_hz(hz: u32) {
         apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | LVT_TSC_DEADLINE);
         Msr::new(IA32_TSC_DEADLINE).write(tsc::rdtsc().wrapping_add(per));
     }
+    unsafe {
+        match MODE {
+            Mode::XApic { .. } => apic_write(REG_TPR, 0x00),
+            Mode::X2Apic => Msr::new(0x808).write(0x00),
+        }
+    }
+
+    tpr_write(0x00);
 }
 
 pub fn start_timer_periodic_hz(hz: u32) {
@@ -208,6 +216,14 @@ pub fn start_timer_periodic_hz(hz: u32) {
         apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | LVT_PERIODIC);
         apic_write(REG_INIT_CNT, init);
     }
+    unsafe {
+        match MODE {
+            Mode::XApic { .. } => apic_write(REG_TPR, 0x00),
+            Mode::X2Apic => Msr::new(0x808).write(0x00),
+        }
+    }
+
+    tpr_write(0x00);
 }
 
 /// Called from the timer ISR: EOI and (if deadline mode) arm next deadline.
@@ -221,5 +237,16 @@ pub fn timer_isr_eoi_and_rearm_deadline() {
     }
     unsafe {
         eoi();
+    }
+}
+
+#[inline(always)]
+fn tpr_write(val: u32) {
+    unsafe {
+        match MODE {
+            Mode::XApic { .. } => apic_write(REG_TPR, val),
+            // IA32_X2APIC_TPR MSR = 0x808
+            Mode::X2Apic => Msr::new(0x808).write(val as u64),
+        }
     }
 }

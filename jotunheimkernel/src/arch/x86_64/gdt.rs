@@ -1,45 +1,64 @@
 use spin::Once;
+use x86_64::VirtAddr;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 
-static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
+const IST_DF: usize = 1;
+const IST_NMI: usize = 2;
+const IST_STACK_SIZE: usize = 16 * 1024;
+
+#[repr(align(16))]
+struct Aligned([u8; IST_STACK_SIZE]);
+
+static DF_STACK: Once<Aligned> = Once::new();
+static NMI_STACK: Once<Aligned> = Once::new();
+
 static TSS: Once<TaskStateSegment> = Once::new();
+static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
 
-struct Selectors {
-    _code: SegmentSelector,
-    tss: SegmentSelector,
+pub struct Selectors {
+    pub code: SegmentSelector,
+    pub tss: SegmentSelector,
 }
-
-// Prefix with underscore to silence "unused" until IST wiring
-const _DOUBLE_FAULT_IST_INDEX: u16 = 0;
 
 fn build_tss() -> TaskStateSegment {
     let mut tss = TaskStateSegment::new();
-    // TODO: allocate IST stack and set:
-    // tss.interrupt_stack_table[_DOUBLE_FAULT_IST_INDEX as usize] = VirtAddr::from_ptr(stack_top);
-    tss.iomap_base = u16::MAX;
+
+    let df = DF_STACK.call_once(|| Aligned([0u8; IST_STACK_SIZE]));
+    let nmi = NMI_STACK.call_once(|| Aligned([0u8; IST_STACK_SIZE]));
+
+    let df_top = VirtAddr::from_ptr(&df.0) + (IST_STACK_SIZE as u64);
+    let nmi_top = VirtAddr::from_ptr(&nmi.0) + (IST_STACK_SIZE as u64);
+
+    // Recent x86_64 crate API
+    tss.interrupt_stack_table[IST_DF] = df_top;
+    tss.interrupt_stack_table[IST_NMI] = nmi_top;
+
     tss
 }
 
 pub fn init() {
-    // Initialize TSS once and get a stable &'static reference (no static mut refs)
     TSS.call_once(build_tss);
-    let tss_ref: &'static TaskStateSegment = TSS.get().unwrap();
-
-    // Build GDT once
     GDT.call_once(|| {
-        let mut gdt = GlobalDescriptorTable::new();
-        // x86_64 0.15.x uses `append`
-        let code = gdt.append(Descriptor::kernel_code_segment());
-        let tss = gdt.append(Descriptor::tss_segment(tss_ref));
-        (gdt, Selectors { _code: code, tss })
+        let mut g = GlobalDescriptorTable::new();
+        let code = g.append(Descriptor::kernel_code_segment());
+        let tss = g.append(Descriptor::tss_segment(TSS.get().unwrap()));
+        (g, Selectors { code, tss })
     });
 
-    let (gdt, sel) = GDT.get().unwrap();
-    gdt.load();
-
-    // load TSS
+    let (g, sel) = GDT.get().unwrap();
+    g.load();
     unsafe {
         x86_64::instructions::tables::load_tss(sel.tss);
     }
+}
+
+pub const fn ist_index_df() -> u16 {
+    IST_DF as u16
+}
+pub const fn ist_index_nmi() -> u16 {
+    IST_NMI as u16
+}
+pub fn tss() -> &'static TaskStateSegment {
+    TSS.get().unwrap()
 }

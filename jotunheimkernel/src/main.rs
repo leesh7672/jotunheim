@@ -55,8 +55,6 @@ pub fn early_map_mmio_for_apics() {
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     x86_64::instructions::interrupts::disable();
-    let _boot = unsafe { &*boot_info_ptr };
-
     unsafe {
         serial::init_com1(115_200);
     }
@@ -65,20 +63,20 @@ pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
     gdt::init();
     idt::init();
     early_map_mmio_for_apics();
-    crate::println!("[JOTUNHEIM] GDT/IDT is initialised.");
+    println!("[JOTUNHEIM] GDT/IDT is initialised.");
 
     apic::init();
-    crate::println!("[JOTUNHEIM] APIC is initialised.");
+    println!("[JOTUNHEIM] APIC is initialised.");
 
     unsafe {
         ioapic::mask_all();
     }
-    crate::println!("[JOTUNHEIM] IOAPIC is masked all.");
+    println!("[JOTUNHEIM] IOAPIC is masked all.");
 
     let _ = apic::start_best_timer_hz(1_000);
 
     x86_64::instructions::interrupts::enable();
-    crate::println!("[JOTUNHEIM] Interrupts are enabled.");
+    println!("[JOTUNHEIM] Interrupts are enabled.");
 
     loop {
         x86_64::instructions::hlt();
