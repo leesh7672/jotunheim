@@ -114,6 +114,7 @@ fn apic_base_from_msr() -> u64 {
     let base = msr & 0xFFFF_F000;
     if base != 0 { base } else { 0xFEE0_0000 }
 }
+
 pub fn init() {
     // We'll print the chosen mode after the unsafe section.
     let _mode_str;
@@ -171,35 +172,40 @@ pub fn start_best_timer_hz(hz: u32) {
         start_timer_periodic_hz(hz);
     }
 }
-
+/// TSC-Deadline mode: set vector+mode, then arm the first deadline,
+/// THEN drop priorities once.
 pub fn start_timer_deadline_hz(hz: u32) {
     let tsc_hz = tsc::tsc_hz_estimate();
     let per = core::cmp::max(1, tsc_hz / (hz as u64));
     DEADLINE_PERIOD_CYC.store(per, Ordering::Relaxed);
 
     unsafe {
+        // 1) Program LVT to deadline mode on our timer vector
         apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | LVT_TSC_DEADLINE);
+
+        // 2) Arm the first deadline (now LVT is ready to deliver)
         Msr::new(IA32_TSC_DEADLINE).write(tsc::rdtsc().wrapping_add(per));
     }
-    unsafe {
-        match MODE {
-            Mode::XApic { .. } => apic_write(REG_TPR, 0x00),
-            Mode::X2Apic => Msr::new(0x808).write(0x00),
-        }
-    }
 
+    // 3) Open priorities exactly once (no direct MSR/TPr writes elsewhere)
     tpr_write(0x00);
 }
 
+/// Periodic mode: calibrate with masked LVT, then program periodic vector
+/// and initial count, THEN drop priorities once.
 pub fn start_timer_periodic_hz(hz: u32) {
-    const DIV: u32 = 0x3; // /16
-    const CAL_MS: u64 = 50;
+    const DIV: u32 = 0x3; // divide by 16
+    const CAL_MS: u64 = 50; // short calibration window
 
     unsafe {
+        // 0) Divider first
         apic_write(REG_DIVIDE, DIV);
+
+        // 1) Mask the timer and start a free-running countdown at max
         apic_write(REG_LVT_TIMER, LVT_MASKED);
         apic_write(REG_INIT_CNT, 0xFFFF_FFFF);
 
+        // 2) Micro-calibration window using TSC
         let tsc_hz = tsc::tsc_hz_estimate();
         let target = (tsc_hz / 1000) * CAL_MS;
         let t0 = tsc::rdtsc();
@@ -207,22 +213,19 @@ pub fn start_timer_periodic_hz(hz: u32) {
             core::hint::spin_loop();
         }
 
+        // 3) Convert elapsed APIC ticks to a periodic initial count
         let remained = apic_read(REG_CURR_CNT);
         let elapsed = 0xFFFF_FFFFu32.wrapping_sub(remained);
         let ticks_per_ms = (elapsed as u64) / CAL_MS;
         let want_ms = 1000u64 / (hz as u64);
         let init = core::cmp::max(1, (ticks_per_ms * want_ms) as u32);
 
+        // 4) Program periodic mode at our vector and set initial count
         apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | LVT_PERIODIC);
         apic_write(REG_INIT_CNT, init);
     }
-    unsafe {
-        match MODE {
-            Mode::XApic { .. } => apic_write(REG_TPR, 0x00),
-            Mode::X2Apic => Msr::new(0x808).write(0x00),
-        }
-    }
 
+    // 5) Open priorities exactly once
     tpr_write(0x00);
 }
 
@@ -245,7 +248,6 @@ fn tpr_write(val: u32) {
     unsafe {
         match MODE {
             Mode::XApic { .. } => apic_write(REG_TPR, val),
-            // IA32_X2APIC_TPR MSR = 0x808
             Mode::X2Apic => Msr::new(0x808).write(val as u64),
         }
     }

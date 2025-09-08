@@ -68,16 +68,29 @@ unsafe extern "C" {
 // ---- Rust handlers called by NASM (exported, C ABI) ----
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_default_rust(vec: u64, err: u64) -> ! {
-    if vec >= 0x20 && vec != 0xFF {
+pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
+    // Spurious LAPIC vector (0xFF) happens right after enable — ignore it.
+    if vec == 0xFF {
+        static mut SEEN: bool = false;
         unsafe {
-            apic::eoi();
+            if !SEEN {
+                crate::println!("[INT] spurious vec=0xff err={:#018x}", err);
+                SEEN = true;
+            }
+        }
+        // No EOI for spurious; just return.
+        return;
+    }
+
+    // APIC IRQs (>= 0x20) need EOI; exceptions (< 0x20) do not.
+    if vec >= 0x20 {
+        unsafe {
+            crate::arch::x86_64::apic::eoi();
         }
     }
-    println!("[INT] default vec={:#04x} err={:#018x}", vec, err);
-    loop {
-        x86_64::instructions::hlt();
-    }
+
+    // Optional: lightweight log for anything else
+    crate::println!("[INT] other vec={:#04x} err={:#018x}", vec, err);
 }
 
 #[unsafe(no_mangle)]
