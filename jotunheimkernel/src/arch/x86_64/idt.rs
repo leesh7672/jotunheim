@@ -1,12 +1,8 @@
-// arch/x86_64/idt.rs
 #![allow(clippy::missing_safety_doc)]
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-
-use x86_64::instructions::segmentation::Segment;
-use x86_64::registers::segmentation::CS;
 
 use crate::arch::x86_64::apic::{self, TIMER_VECTOR};
 
@@ -36,8 +32,8 @@ const fn empty_entry() -> IdtEntry {
 
 #[repr(C, packed)]
 pub struct Idtr {
-    limit: u16,
-    base: u64,
+    pub limit: u16,
+    pub base: u64,
 }
 
 #[repr(transparent)]
@@ -45,7 +41,7 @@ struct Idt([IdtEntry; 256]);
 
 static mut IDT: Idt = Idt([empty_entry(); 256]);
 
-// NASM stubs
+// Stubs from NASM
 unsafe extern "C" {
     fn isr_default_stub();
     fn isr_gp_stub();
@@ -55,9 +51,13 @@ unsafe extern "C" {
     fn isr_timer_stub();
 }
 
-// Public tick counter (read from main.rs)
+// Public counter (you use this from main.rs)
 pub static TICKS: AtomicU64 = AtomicU64::new(0);
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
+
+// In long mode, a flat kernel code selector is usually 0x08.
+// Use that directly to avoid relying on CS::get_reg (not available on your crate version).
+const KERNEL_CS: u16 = 0x08;
 
 unsafe fn set_gate_raw(
     idt_base: *mut IdtEntry,
@@ -68,15 +68,11 @@ unsafe fn set_gate_raw(
 ) {
     let h = handler as usize;
 
-    // IMPORTANT: use the KERNEL CODE SEGMENT selector, not CS::get_reg(),
-    // and DEFINITELY not a TSS selector like 0x30.
-    let cs: u16 = 0x08; // replace later with gdt::kernel_cs_selector()
-
     let entry = IdtEntry {
         offset_low: (h & 0xFFFF) as u16,
-        selector: cs,
+        selector: KERNEL_CS,
         ist: ist & 0x7,
-        type_attr: 0x8E | ((dpl & 0x3) << 5), // present + interrupt gate + DPL
+        type_attr: 0x8E | ((dpl & 0x3) << 5), // present | interrupt gate | DPL
         offset_mid: ((h >> 16) & 0xFFFF) as u16,
         offset_high: ((h >> 32) & 0xFFFF_FFFF) as u32,
         zero: 0,
@@ -104,13 +100,16 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
 
 pub fn init() {
     unsafe {
+        // Default all entries
         for v in 0..=255usize {
             set_gate(v, isr_default_stub, 0, 0);
         }
-        set_gate(13, isr_gp_stub, 0, 0);
-        set_gate(14, isr_pf_stub, 0, 0);
-        // Only use IST=1 if GDT/TSS set IST1 valid; else pass 0.
-        set_gate(8, isr_df_stub, 1, 0);
+
+        // Faults + timer
+        set_gate(13, isr_gp_stub, 0, 0); // #GP
+        set_gate(14, isr_pf_stub, 0, 0); // #PF
+        set_gate(8, isr_df_stub, 1, 0); // #DF with IST1
+        set_gate(6, isr_ud_stub, 0, 0); // #UD
         set_gate(TIMER_VECTOR as usize, isr_timer_stub, 0, 0);
 
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
@@ -118,11 +117,11 @@ pub fn init() {
     }
 }
 
-// ---------- Rust ISR targets ----------
+// ---------- Rust ISR targets that NASM stubs call ----------
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     if !THROTTLED_ONCE.swap(true, Ordering::Relaxed) {
-        crate::println!("[INT] vec={:#04x} err={:#018x}", vec, err);
+        crate::println!("[INT] default vec={:#04x} err={:#018x}", vec, err);
     }
     unsafe { apic::eoi() };
 }
