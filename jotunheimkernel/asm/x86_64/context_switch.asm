@@ -25,7 +25,6 @@ __ctx_switch:
     mov rbx, [rsi + 0x20]
     mov rbp, [rsi + 0x28]
     mov rsp, [rsi + 0x30]        ; restore rsp
-    mov rax, [rsi + 0x38]        ; next rip
-    jmp rax
+    jmp qword [rsi + 0x38]
 .resume:
     ret
