@@ -63,3 +63,6 @@ fuzz/corpus/
 *.bak
 *.old
 *.orig
+
+# === Source Tarball ===
+*.tar.gz
