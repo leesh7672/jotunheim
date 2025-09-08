@@ -28,19 +28,7 @@ const REG_LVT_ERROR: u32 = 0x370;
 const REG_INIT_CNT: u32 = 0x380;
 const REG_CURR_CNT: u32 = 0x390;
 const REG_DIVIDE: u32 = 0x3E0;
-const REG_ISR0: u32 = 0x100;
 
-// Which vector is currently in-service (per LAPIC ISR registers).
-pub fn current_isr_vector() -> Option<u8> {
-    for i in (0..8u32).rev() {
-        let v = unsafe { apic_read(REG_ISR0 + i * 0x10) };
-        if v != 0 {
-            let bit = 31 - v.leading_zeros();
-            return Some((i * 32 + bit) as u8);
-        }
-    }
-    None
-}
 // x2APIC MSR mapping base and helper (index = offset >> 4)
 const X2_BASE: u32 = 0x800;
 const fn x2(reg: u32) -> u32 {
@@ -252,39 +240,6 @@ fn tpr_write(val: u32) {
     }
 }
 
-#[inline(always)]
-pub fn lvt_timer_read() -> u32 {
-    unsafe { apic_read(REG_LVT_TIMER) }
-}
-
-#[inline(always)]
-pub fn lvt_timer_write(val: u32) {
-    unsafe { apic_write(REG_LVT_TIMER, val) }
-}
-
-#[inline(always)]
-pub fn lvt_timer_mask(mask: bool) {
-    let mut v = lvt_timer_read();
-    if mask {
-        v |= 1 << 16;
-    } else {
-        v &= !(1 << 16);
-    }
-    lvt_timer_write(v);
-}
-
-// --- add near the top of apic.rs ---
-#[derive(Copy, Clone)]
-pub struct ApicSnapshot {
-    pub mode: &'static str,
-    pub svr: u32,
-    pub tpr: u32,
-    pub lvt_timer: u32,
-    pub divide: u32,
-    pub curr_cnt: u32,
-    pub init_cnt: u32,
-}
-
 pub fn snapshot_debug() {
     unsafe {
         let lvt = match MODE {
@@ -318,23 +273,6 @@ pub fn open_all_irqs() {
         match MODE {
             Mode::XApic { .. } => apic_write(REG_TPR, 0x00),
             Mode::X2Apic => Msr::new(0x808).write(0x00),
-        }
-    }
-}
-pub fn start_timer_periodic_rough() {
-    const DIV: u32 = 0b011; // divide by 16
-    const INIT: u32 = 50_000; // ~coarse period; adjust as needed
-    unsafe {
-        // enable APIC + spurious vector was already done in init()
-        apic_write(REG_DIVIDE, DIV);
-        apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | (1 << 17)); // periodic
-        apic_write(REG_INIT_CNT, INIT);
-    }
-    // drop threshold after everything is armed
-    unsafe {
-        match MODE {
-            Mode::XApic { .. } => apic_write(REG_TPR, 0),
-            Mode::X2Apic => Msr::new(0x808).write(0),
         }
     }
 }

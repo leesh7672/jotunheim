@@ -22,14 +22,10 @@ mod arch {
     }
 }
 
-use arch::x86_64::init;
-use bootinfo::BootInfo;
 use core::panic::PanicInfo;
 use core::sync::atomic::Ordering;
 
-use crate::arch::x86_64::{idt, mmio_map::map_identity_uc, split_huge::split_huge_2m};
-use crate::mem::mapper::active_offset_mapper;
-use crate::mem::simple_alloc::TinyBump;
+use crate::arch::x86_64::idt;
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]

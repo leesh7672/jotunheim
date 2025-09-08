@@ -3,7 +3,7 @@ use core::ptr::null_mut;
 use spin::Mutex;
 
 struct Bump {
-    start: usize,
+    _start: usize,
     end: usize,
     next: usize,
 }
@@ -13,7 +13,7 @@ static ALLOC: Mutex<Option<Bump>> = Mutex::new(None);
 
 pub fn init(paddr: usize, len: usize) {
     *ALLOC.lock() = Some(Bump {
-        start: paddr,
+        _start: paddr,
         end: paddr + len,
         next: paddr,
     });

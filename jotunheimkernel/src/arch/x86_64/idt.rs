@@ -62,7 +62,7 @@ fn kernel_cs_u16() -> u16 {
     gdt::code_selector().0
 }
 
-unsafe fn set_gate_raw(
+fn set_gate_raw(
     idt_base: *mut IdtEntry,
     idx: usize,
     handler: unsafe extern "C" fn(),
@@ -79,12 +79,16 @@ unsafe fn set_gate_raw(
         offset_high: ((h >> 32) & 0xFFFF_FFFF) as u32,
         zero: 0,
     };
-    core::ptr::write(idt_base.add(idx), entry);
+    unsafe {
+        core::ptr::write(idt_base.add(idx), entry);
+    }
 }
 
-unsafe fn set_gate(idx: usize, handler: unsafe extern "C" fn(), ist: u8, dpl: u8) {
-    let base: *mut IdtEntry = addr_of_mut!(IDT.0) as *mut IdtEntry;
-    set_gate_raw(base, idx, handler, ist, dpl);
+fn set_gate(idx: usize, handler: unsafe extern "C" fn(), ist: u8, dpl: u8) {
+    unsafe {
+        let base: *mut IdtEntry = addr_of_mut!(IDT.0) as *mut IdtEntry;
+        set_gate_raw(base, idx, handler, ist, dpl);
+    }
 }
 
 unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
@@ -104,11 +108,13 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
             timer_gate.ist & 0x7
         );
     }
-    core::arch::asm!(
-        "lidt [{0}]",
-        in(reg) &idtr,
-        options(readonly, nostack, preserves_flags)
-    );
+    unsafe {
+        core::arch::asm!(
+            "lidt [{0}]",
+            in(reg) &idtr,
+            options(readonly, nostack, preserves_flags)
+        );
+    }
 }
 
 pub fn init() {

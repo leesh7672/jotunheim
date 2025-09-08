@@ -3,22 +3,23 @@ use crate::println;
 
 use x86_64::instructions;
 use x86_64::instructions::segmentation::{CS, Segment};
-use x86_64::structures::gdt::SegmentSelector;
 
 #[inline(always)]
 unsafe fn load_kernel_data(sel: u16) {
-    core::arch::asm!(
-        "mov ds, {0:x}",
-        "mov es, {0:x}",
-        "mov ss, {0:x}",
-        in(reg) sel,
-        options(nostack, preserves_flags),
-    );
+    unsafe {
+        core::arch::asm!(
+            "mov ds, {0:x}",
+            "mov es, {0:x}",
+            "mov ss, {0:x}",
+            in(reg) sel,
+            options(nostack, preserves_flags),
+        );
+    }
 }
 
 #[inline(always)]
 fn read_tr() -> u16 {
-    let mut tr = 0u16;
+    let mut tr;
     unsafe { core::arch::asm!("str {0:x}", out(reg) tr) };
     tr
 }
