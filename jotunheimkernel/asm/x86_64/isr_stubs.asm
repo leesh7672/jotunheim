@@ -1,7 +1,7 @@
 ; =======================================================================
 ; asm/x86_64/isr_stubs.asm — NASM, ELF64 SysV
 ; 64-bit interrupt stubs that call into Rust handlers.
-; Stack alignment: we add/sub 8 to keep 16-byte alignment for SysV calls.
+; We add/sub 8 bytes so the stack is 16-byte aligned for the SysV ABI.
 ; =======================================================================
 
 BITS 64
@@ -48,13 +48,13 @@ extern isr_timer_rust
 %endmacro
 
 ; -----------------------------------------------------------------------
-; Default ISR (no CPU error code): vec=0xFF, err=0
+; Default ISR (no CPU error code)
 ; -----------------------------------------------------------------------
 isr_default_stub:
     PUSH_CALLER
     sub  rsp, 8
-    mov  rdi, 0xFF
-    xor  rsi, rsi
+    mov  rdi, 0xFF          ; vec
+    xor  rsi, rsi           ; err = 0
     call isr_default_rust
     add  rsp, 8
     POP_CALLER
@@ -67,11 +67,11 @@ isr_gp_stub:
     PUSH_CALLER
     sub  rsp, 8
     mov  rdi, 13
-    mov  rsi, [rsp + 8 + 9*8]   ; +8 for our align shim
+    mov  rsi, [rsp + 8 + 9*8] ; +8 for our align shim
     call isr_gp_rust
     add  rsp, 8
     POP_CALLER
-    add  rsp, 8                 ; drop error code from CPU
+    add  rsp, 8              ; drop CPU error code
     iretq
 
 ; -----------------------------------------------------------------------
@@ -102,12 +102,12 @@ isr_ud_stub:
     iretq
 
 ; -----------------------------------------------------------------------
-; LAPIC Timer (vector 0x40) — no error code
+; LAPIC Timer (vector 0x20) — no error code
 ; -----------------------------------------------------------------------
 isr_timer_stub:
     PUSH_CALLER
     sub  rsp, 8
-    mov  rdi, 0x40
+    mov  rdi, 0x20
     xor  rsi, rsi
     call isr_timer_rust
     add  rsp, 8
@@ -116,7 +116,6 @@ isr_timer_stub:
 
 ; -----------------------------------------------------------------------
 ; #DF — double fault (must use IST in IDT). Keep it non-returning.
-; If you later want a Rust handler, you can add one and call it here.
 ; -----------------------------------------------------------------------
 isr_df_stub:
     cli
