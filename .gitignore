@@ -66,3 +66,4 @@ fuzz/corpus/
 
 # === Source Tarball ===
 *.tar.gz
+*.txt
