@@ -12,7 +12,7 @@ pub fn init_arch() {
     gdt::init();
     idt::init();
     let _ = mmio_map::early_map_mmio_for_apics();
-    
+
     apic::init();
     unsafe {
         ioapic::mask_all();

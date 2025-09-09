@@ -1,3 +1,5 @@
+pub mod sched_simd;
+
 use spin::{Mutex, Once};
 
 use crate::arch::x86_64::context;
@@ -21,6 +23,7 @@ pub struct Task {
     pub id: TaskId,
     pub state: TaskState,
     pub ctx: CpuContext,
+    pub simd: Option<sched_simd::SimdArea>,
     pub kstack_top: u64,
     pub time_slice: u32, // ticks remaining
 }
@@ -85,6 +88,7 @@ pub fn init() {
                 ..CpuContext::default()
             },
             kstack_top: top,
+            simd: sched_simd::SimdArea::alloc(),
             time_slice: u32::MAX, // never preempt
         });
         rq.next_id += 1;
@@ -119,6 +123,7 @@ pub fn spawn_kthread(
             id,
             state: TaskState::Ready,
             ctx,
+            simd: sched_simd::SimdArea::alloc(),
             kstack_top: top,
             time_slice: DEFAULT_SLICE,
         });

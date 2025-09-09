@@ -28,7 +28,7 @@ fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
 }
 
 pub fn early_map_mmio_for_apics() -> Result<(), MmioMapErr> {
-    let alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
+    let _alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
     let mut mapper = unsafe { active_offset_mapper(0) };
 
     // --- FAST PATH: keep the loader’s 2 MiB identity mapping ---

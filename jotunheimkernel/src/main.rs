@@ -2,13 +2,9 @@
 #![no_main]
 
 mod bootinfo;
+mod mem;
 mod sched;
 mod util;
-mod mem {
-    pub mod bump;
-    pub mod mapper;
-    pub mod simple_alloc;
-}
 mod arch {
     pub mod x86_64 {
         pub mod apic;
@@ -19,10 +15,12 @@ mod arch {
         pub mod ioapic;
         pub mod mmio_map;
         pub mod serial;
+        pub mod simd;
         pub mod tsc;
     }
 }
 
+use crate::arch::x86_64::simd;
 use core::panic::PanicInfo;
 use x86_64::instructions::interrupts;
 
