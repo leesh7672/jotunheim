@@ -60,23 +60,5 @@ impl Drop for SimdArea {
     }
 }
 
-// XSAVE/XRSTOR wrappers
-#[inline]
-pub fn xsave(save_area: *mut u8) {
-    let eax: u32 = u32::MAX;
-    let edx: u32 = u32::MAX;
-    unsafe {
-        asm!("xsave [{0}]", in(reg) save_area, in("eax") eax, in("edx") edx, options(nostack));
-    }
-}
-#[inline]
-pub fn xrstor(save_area: *const u8) {
-    let eax: u32 = u32::MAX;
-    let edx: u32 = u32::MAX;
-    unsafe {
-        asm!("xrstor [{0}]", in(reg) save_area, in("eax") eax, in("edx") edx, options(nostack));
-    }
-}
-
 unsafe impl Send for SimdArea {}
 unsafe impl Sync for SimdArea {}

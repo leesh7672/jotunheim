@@ -34,17 +34,21 @@ static mut PF_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 static mut TIMER_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 #[unsafe(link_section = ".bss.stack")]
 static mut GP_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+#[unsafe(link_section = ".bss.stack")]
+static mut UD_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 
 const RSP0_STACK_LEN: usize = 16 * 1024;
 const DF_STACK_LEN: usize = 16 * 1024;
 const PF_STACK_LEN: usize = 16 * 1024;
 const TIMER_STACK_LEN: usize = 16 * 1024;
 const GP_STACK_LEN: usize = 16 * 1024;
+const UD_STACK_LEN: usize = 16 * 1024;
 
 const IST_DF: u16 = 1;
 const IST_PF: u16 = 2;
 const IST_TIMER: u16 = 3;
 const IST_GP: u16 = 4;
+const IST_UD: u16 = 5;
 
 #[inline]
 fn top_raw(base: *mut u8, len: usize) -> VirtAddr {
@@ -69,12 +73,14 @@ pub fn init() {
         let pf_base = core::ptr::addr_of_mut!(PF_STACK) as *mut u8;
         let timer_base = core::ptr::addr_of_mut!(TIMER_STACK) as *mut u8;
         let gp_base = core::ptr::addr_of_mut!(GP_STACK) as *mut u8;
+        let ud_base = core::ptr::addr_of_mut!(UD_STACK) as *mut u8;
 
         t.privilege_stack_table[0] = top_raw(rsp0_base, RSP0_STACK_LEN); // rsp0
         t.interrupt_stack_table[(IST_DF - 1) as usize] = top_raw(df_base, DF_STACK_LEN); // #DF
         t.interrupt_stack_table[(IST_PF - 1) as usize] = top_raw(pf_base, PF_STACK_LEN); // #PF (optional but useful)
         t.interrupt_stack_table[(IST_TIMER - 1) as usize] = top_raw(timer_base, TIMER_STACK_LEN);
         t.interrupt_stack_table[(IST_GP - 1) as usize] = top_raw(gp_base, GP_STACK_LEN);
+        t.interrupt_stack_table[(IST_UD - 1) as usize] = top_raw(ud_base, UD_STACK_LEN);
 
         t
     });

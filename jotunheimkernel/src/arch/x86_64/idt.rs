@@ -64,6 +64,7 @@ const IST_DF: u8 = 1; // uses interrupt_stack_table[0]
 const IST_PF: u8 = 2; // uses interrupt_stack_table[1]
 const IST_TIMER: u8 = 3;
 const IST_GP: u8 = 4;
+const IST_UD: u8 = 5;
 
 fn set_gate_raw(
     idt_base: *mut IdtEntry,
@@ -127,10 +128,10 @@ pub fn init() {
         }
 
         // Faults + timer
-        set_gate(13, isr_gp_stub, 0, 0); // #GP
+        set_gate(13, isr_gp_stub, IST_GP, 0); // #GP
         set_gate(14, isr_pf_stub, IST_PF, 0); // #PF
         set_gate(8, isr_df_stub, IST_DF, 0); // #DF with IST1
-        set_gate(6, isr_ud_stub, IST_GP, 0); // #UD
+        set_gate(6, isr_ud_stub, IST_UD, 0); // #UD
         set_gate(apic::TIMER_VECTOR as usize, isr_timer_stub, IST_TIMER, 0);
 
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;

@@ -16,8 +16,7 @@ pub fn init() {
     simd::enable_sse_avx();
     gdt::init();
     idt::init();
-    let _ = mmio_map::early_map_mmio_for_apics();
-
+    mmio_map::early_map_mmio_for_apics();
     apic::init();
     unsafe {
         ioapic::mask_all();

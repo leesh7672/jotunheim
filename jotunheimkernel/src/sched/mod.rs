@@ -5,6 +5,7 @@ use spin::{Mutex, Once};
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
 use crate::arch::x86_64::simd;
+use crate::println;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TaskState {
@@ -70,8 +71,6 @@ pub fn init() {
     static ONCE: spin::Once<()> = spin::Once::new();
     ONCE.call_once(|| {
         let mut rq = rq().lock();
-
-        // --- build a proper stack for idle (slot 0) ---
         let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
         let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
         let init_rsp = (top - 16) as *mut u64;
@@ -85,7 +84,7 @@ pub fn init() {
             state: TaskState::Running,
             ctx: CpuContext {
                 rip: kthread_trampoline as u64,
-                rsp: top - 16, // <- important
+                rsp: init_rsp as u64, // <- important
                 ..CpuContext::default()
             },
             kstack_top: top,

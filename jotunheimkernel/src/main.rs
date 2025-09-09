@@ -12,10 +12,11 @@ mod arch {
 use core::panic::PanicInfo;
 use x86_64::instructions::interrupts;
 
-use crate::arch::x86_64::{apic, init, serial};
+use crate::arch::x86_64::{apic, serial};
 
 static mut DEMO_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 static mut DEMO_STACK2: [u8; 16 * 1024] = [0; 16 * 1024];
+
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start() -> ! {
