@@ -47,7 +47,7 @@ pub extern "C" fn _start() -> ! {
     sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
 
     let ptr2 = core::ptr::addr_of_mut!(DEMO_STACK2) as *mut u8;
-    sched::spawn_kthread(kthread_demo, 0, ptr2, DEMO_STACK_LEN);
+    sched::spawn_kthread(kthread_demo2, 0, ptr2, DEMO_STACK_LEN);
 
     interrupts::enable();
 
@@ -58,11 +58,13 @@ pub extern "C" fn _start() -> ! {
 extern "C" fn kthread_demo(_arg: usize) -> ! {
     loop {
         println!("[Threading 1]");
+        sched::yield_now();
     }
 }
 extern "C" fn kthread_demo2(_arg: usize) -> ! {
     loop {
         println!("[Threading 2]");
+        sched::yield_now();
     }
 }
 
