@@ -68,24 +68,29 @@ pub fn init() {
         let mut rq = rq().lock();
 
         // --- build a proper stack for idle (slot 0) ---
-        let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
-        let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
+        let base = unsafe { core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8 };
+        let len = IDLE_STACK_SIZE;
+        let top = ((base as usize + len) & !0xF) as u64;
+
+        // layout for kthread_trampoline: [arg][entry]
         let init_rsp = (top - 16) as *mut u64;
         unsafe {
-            core::ptr::write(init_rsp.add(0), 0u64); // arg = 0
-            core::ptr::write(init_rsp.add(1), idle_main as u64); // entry = idle_main
+            core::ptr::write(init_rsp.add(0), 0u64); // arg
+            core::ptr::write(init_rsp.add(1), idle_main as usize as u64); // entry
         }
+
+        let idle_ctx = CpuContext {
+            rip: kthread_trampoline as u64,
+            rsp: top,
+            ..CpuContext::default()
+        };
 
         rq.tasks[0] = Some(Task {
             id: rq.next_id,
             state: TaskState::Running,
-            ctx: CpuContext {
-                rip: kthread_trampoline as u64,
-                rsp: top - 16, // <- important
-                ..CpuContext::default()
-            },
+            ctx: idle_ctx,
             kstack_top: top,
-            time_slice: u32::MAX, // never preempt
+            time_slice: u32::MAX, // never preempt idle
         });
         rq.next_id += 1;
         rq.current = Some(0);
@@ -171,6 +176,7 @@ pub fn yield_now() {
     rq.current = Some(next_idx);
     rq.need_resched = false;
     drop(rq);
+
     unsafe {
         crate::arch::x86_64::context::switch(prev_ctx, next_ctx);
     }
