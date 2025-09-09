@@ -25,10 +25,6 @@ extern isr_df_rust
 extern isr_ud_rust
 extern isr_timer_rust
 
-
-extern sched_preempt_handle_from_isr
-extern __ctx_switch    
-
 ; ---------------- Common helpers ----------------
 
 %macro PUSH_VOLATILES 0
@@ -151,30 +147,16 @@ isr_ud_stub:
     cli
     hlt
     jmp .hang_ud
-               ; void(prev, next)
 
-; --- in isr_stubs.asm (64-bit) ---
+
+; ---------------- LAPIC Timer (vector 0x20) — no error code ----------------
+; Must return with EOI handled in Rust or after the call.
 isr_timer_stub:
     PUSH_VOLATILES
-    mov  rdi, 0x20
-    mov  rsi, 0
-    sub  rsp, 8
-    call isr_timer_rust              ; accounts time + may set preempt flag
-    add  rsp, 8
-
-    ; Try preempt in RUST (will not return if it actually switches)
-    call sched_preempt_handle_from_isr
-
-    POP_VOLATILES
-    iretq
-; isr_timer_stub
-    PUSH_VOLATILES
-    mov  rdi, 0x20
-    mov  rsi, 0
-    sub  rsp, 8
-    call isr_timer_rust              ; accounts time + may set preempt flag
-    add  rsp, 8
-    call sched_preempt_handle_from_isr
-
+    mov rdi, 0x20              ; vec = TIMER_VECTOR
+    mov rsi, 0                 ; err = 0
+    ALIGN_BEFORE_CALL
+    call isr_timer_rust        ; returns
+    UNALIGN_AFTER_CALL
     POP_VOLATILES
     iretq

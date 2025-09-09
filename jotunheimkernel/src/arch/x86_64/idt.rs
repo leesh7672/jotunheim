@@ -156,7 +156,7 @@ pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, _rip: u64) -> ! {
+pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
     use x86_64::registers::control::Cr2;
     let cr2 = Cr2::read().expect("CR2 read failed").as_u64();
     crate::arch::x86_64::mmio_map::log_va_mapping("PF-cr2", cr2, 0);
@@ -176,7 +176,7 @@ pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64) -> ! {
-    println!("[#UD] rip={:#018x}", rip);
+    crate::println!("[#UD] rip={:#018x}", rip);
     crate::arch::x86_64::mmio_map::log_va_mapping("UD-rip", rip, 0);
     loop {
         x86_64::instructions::hlt();

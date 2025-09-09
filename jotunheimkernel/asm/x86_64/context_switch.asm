@@ -2,6 +2,7 @@
 default rel
 section .text; rdi = &prev.ctx, rsi = &next.ctx
 __ctx_switch:
+<<<<<<< HEAD
     ; save all
     mov [rdi+0x00], r15
     mov [rdi+0x08], r14
@@ -38,3 +39,27 @@ __ctx_switch:
     mov rsp, [rsi+0x90]       ; rsp offset per your struct
     mov rax, [rsi+0x80]       ; rip
     jmp rax
+=======
+    ; save callee-saved
+    mov [rdi + 0x00], r15
+    mov [rdi + 0x08], r14
+    mov [rdi + 0x10], r13
+    mov [rdi + 0x18], r12
+    mov [rdi + 0x20], rbx
+    mov [rdi + 0x28], rbp
+    mov [rdi + 0x30], rsp        ; save rsp
+    lea rax, [rel .resume]
+    mov [rdi + 0x38], rax        ; save rip
+
+    ; restore next
+    mov r15, [rsi + 0x00]
+    mov r14, [rsi + 0x08]
+    mov r13, [rsi + 0x10]
+    mov r12, [rsi + 0x18]
+    mov rbx, [rsi + 0x20]
+    mov rbp, [rsi + 0x28]
+    mov rsp, [rsi + 0x30]        ; restore rsp
+    jmp qword [rsi + 0x38]
+.resume:
+    ret
+>>>>>>> parent of 4903e7d (Works!)
