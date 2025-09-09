@@ -1,4 +1,4 @@
-use crate::arch::x86_64::{apic, gdt, idt, ioapic, mmio_map};
+use crate::arch::x86_64::{apic, gdt, idt, ioapic, mmio_map, tsc};
 use crate::{println, sched};
 use x86_64::instructions;
 use x86_64::registers::control::Cr3;
@@ -22,6 +22,6 @@ pub fn init_arch() {
 
     sched::init();
 
-    apic::start_best_timer_hz(1_000);
+    apic::start_timer_periodic_hz(1_000);
     instructions::interrupts::enable();
 }
