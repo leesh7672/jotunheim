@@ -172,8 +172,7 @@ fn get_framebuffer() -> Framebuffer {
 
     // Find & open GOP
     let h = boot::get_handle_for_protocol::<GraphicsOutput>().expect("No GOP handle found");
-    let mut gop =
-        unsafe { boot::open_protocol_exclusive::<GraphicsOutput>(h).expect("Open GOP failed") };
+    let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(h).expect("Open GOP failed");
 
     let info = gop.current_mode_info();
     let (w, h) = info.resolution();
