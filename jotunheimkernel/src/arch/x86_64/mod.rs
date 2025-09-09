@@ -8,10 +8,15 @@ pub mod serial;
 pub mod simd;
 pub mod tsc;
 
+use crate::allocator;
+use crate::bootinfo::BootInfo;
+use crate::println;
 use crate::sched;
+
 use x86_64::instructions;
 
-pub fn init() {
+pub fn init(boot: &BootInfo) {
+    allocator::early_init_from_bootinfo(boot);
     simd::enable_sse_avx();
     gdt::init();
     idt::init();
@@ -23,7 +28,6 @@ pub fn init() {
     apic::open_all_irqs();
 
     sched::init();
-
-    apic::start_timer_periodic_hz(1_000);
+    apic::start_timer_hz(1_000);
     instructions::interrupts::enable();
 }

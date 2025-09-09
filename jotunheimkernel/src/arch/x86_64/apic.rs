@@ -153,7 +153,7 @@ pub fn init() {
 
 /// Start the best available timer at `hz`.
 /// Prefers TSC-Deadline when supported; otherwise periodic LAPIC (div=16).
-pub fn start_best_timer_hz(hz: u32) {
+pub fn start_timer_hz(hz: u32) {
     if tsc::has_tsc_deadline() {
         start_timer_deadline_hz(hz);
     } else {
@@ -168,14 +168,11 @@ pub fn start_timer_deadline_hz(hz: u32) {
     DEADLINE_PERIOD_CYC.store(per, Ordering::Relaxed);
 
     unsafe {
-        // 1) Program LVT to deadline mode on our timer vector
         apic_write(REG_LVT_TIMER, (TIMER_VECTOR as u32) | LVT_TSC_DEADLINE);
 
-        // 2) Arm the first deadline (now LVT is ready to deliver)
         Msr::new(IA32_TSC_DEADLINE).write(tsc::rdtsc().wrapping_add(per));
     }
 
-    // 3) Open priorities exactly once (no direct MSR/TPr writes elsewhere)
     tpr_write(0x00);
 }
 

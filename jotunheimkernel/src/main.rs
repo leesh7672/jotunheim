@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod allocator;
 mod bootinfo;
 mod mem;
 mod sched;
@@ -9,6 +10,7 @@ mod arch {
     pub mod x86_64;
 }
 
+use crate::bootinfo::BootInfo;
 use core::panic::PanicInfo;
 use x86_64::instructions::interrupts;
 
@@ -19,14 +21,14 @@ static mut DEMO_STACK2: [u8; 16 * 1024] = [0; 16 * 1024];
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
-pub extern "C" fn _start() -> ! {
+pub extern "C" fn _start(boot: &BootInfo) -> ! {
     interrupts::disable();
     unsafe {
         serial::init_com1(115_200);
     }
     println!("[JOTUNHEIM] Kernel starts.");
 
-    arch::x86_64::init();
+    arch::x86_64::init(boot);
     apic::snapshot_debug();
 
     let ptr = core::ptr::addr_of_mut!(DEMO_STACK) as *mut u8;

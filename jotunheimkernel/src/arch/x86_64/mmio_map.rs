@@ -5,9 +5,7 @@ use crate::mem::simple_alloc::TinyBump;
 use crate::println;
 
 use x86_64::VirtAddr;
-use x86_64::structures::paging::{
-    Mapper, Page, PageTableFlags as F, Size2MiB,
-};
+use x86_64::structures::paging::{Mapper, Page, PageTableFlags as F, Size2MiB};
 
 fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
     let page2m = Page::<Size2MiB>::containing_address(VirtAddr::new(va_2m));
