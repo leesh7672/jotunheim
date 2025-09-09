@@ -17,6 +17,7 @@ global isr_pf_stub
 global isr_df_stub
 global isr_ud_stub
 global isr_timer_stub
+global isr_spurious_stub
 
 extern isr_default_rust
 extern isr_gp_rust
@@ -24,6 +25,7 @@ extern isr_pf_rust
 extern isr_df_rust
 extern isr_ud_rust
 extern isr_timer_rust
+extern isr_spurious_rust
 
 ; ---------------- Common helpers ----------------
 
@@ -147,6 +149,18 @@ isr_timer_stub:
     PUSH_VOLATILES
     ALIGN_BEFORE_CALL
     call isr_timer_rust
-    ALIGN_AFTER_CALL
+    UNALIGN_AFTER_CALL
+    POP_VOLATILES
+    iretq
+
+
+isr_spurious_stub:
+    ; RSP points at [RIP, CS, RFLAGS] right now
+    ; Save caller-saved regs, keep 16-byte alignment
+    
+    PUSH_VOLATILES
+    ALIGN_BEFORE_CALL
+    call isr_spurious_rust
+    UNALIGN_AFTER_CALL
     POP_VOLATILES
     iretq

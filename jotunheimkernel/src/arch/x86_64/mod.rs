@@ -21,11 +21,11 @@ pub fn init(boot: &BootInfo) {
     gdt::init();
     idt::init();
     mmio_map::early_map_mmio_for_apics();
-    apic::init();
+    sched::init();
     unsafe {
         ioapic::mask_all();
     }
+    apic::init();
     apic::open_all_irqs();
-    sched::init();
     apic::start_timer_hz(1_000);
 }

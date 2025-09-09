@@ -29,52 +29,51 @@ section .text
 %define OFF_RSP     0x78
 %define OFF_RIP     0x80
 %define OFF_RFLAGS  0x88
-
 ; rdi = &prev.ctx, rsi = &next.ctx
 __ctx_switch:
     ; ---- save prev ----
-    mov     [rdi+OFF_R15], r15
-    mov     [rdi+OFF_R14], r14
-    mov     [rdi+OFF_R13], r13
-    mov     [rdi+OFF_R12], r12
-    mov     [rdi+OFF_R11], r11
-    mov     [rdi+OFF_R10], r10
-    mov     [rdi+OFF_R9],  r9
-    mov     [rdi+OFF_R8],  r8
-    mov     [rdi+OFF_RDI], rdi
-    mov     [rdi+OFF_RSI], rsi
-    mov     [rdi+OFF_RBP], rbp
-    mov     [rdi+OFF_RBX], rbx
-    mov     [rdi+OFF_RDX], rdx
-    mov     [rdi+OFF_RCX], rcx
-    mov     [rdi+OFF_RAX], rax
-    mov     [rdi+OFF_RSP], rsp
+    mov     [rdi+0x00], r15
+    mov     [rdi+0x08], r14
+    mov     [rdi+0x10], r13
+    mov     [rdi+0x18], r12
+    mov     [rdi+0x20], r11
+    mov     [rdi+0x28], r10
+    mov     [rdi+0x30], r9
+    mov     [rdi+0x38], r8
+    mov     [rdi+0x40], rdi
+    mov     [rdi+0x48], rsi
+    mov     [rdi+0x50], rbp
+    mov     [rdi+0x58], rbx
+    mov     [rdi+0x60], rdx
+    mov     [rdi+0x68], rcx
+    mov     [rdi+0x70], rax
+    mov     [rdi+0x78], rsp
     lea     rax, [rel .resume]
-    mov     [rdi+OFF_RIP], rax
+    mov     [rdi+0x80], rax
     pushfq
     pop     rax
-    mov     [rdi+OFF_RFLAGS], rax
+    mov     [rdi+0x88], rax
 
     ; ---- restore next ----
-    mov     rbx, rsi                 ; stable base = &next.ctx
-    mov     rsp, [rbx+OFF_RSP]
+    mov     rdx, rsi                 ; base = &next.ctx (DON'T use rbx)
+    mov     rsp, [rdx+0x78]
 
-    mov     r15, [rbx+OFF_R15]
-    mov     r14, [rbx+OFF_R14]
-    mov     r13, [rbx+OFF_R13]
-    mov     r12, [rbx+OFF_R12]
-    mov     r11, [rbx+OFF_R11]
-    mov     r10, [rbx+OFF_R10]
-    mov     r9,  [rbx+OFF_R9]
-    mov     r8,  [rbx+OFF_R8]
-    mov     rbp, [rbx+OFF_RBP]
-    mov     rdx, [rbx+OFF_RDX]
-    mov     rcx, [rbx+OFF_RCX]
-    mov     rax, [rbx+OFF_RAX]
-    mov     rdi, [rbx+OFF_RDI]       ; restore ABI arg regs last
-    mov     rsi, [rbx+OFF_RSI]
-
-    jmp     qword [rbx+OFF_RIP]
+    mov     r15, [rdx+0x00]
+    mov     r14, [rdx+0x08]
+    mov     r13, [rdx+0x10]
+    mov     r12, [rdx+0x18]
+    mov     r11, [rdx+0x20]
+    mov     r10, [rdx+0x28]
+    mov     r9,  [rdx+0x30]
+    mov     r8,  [rdx+0x38]
+    mov     rbp, [rdx+0x50]
+    ; rdx is our base, so restore RCX/RAX after we've used them as scratch if you want
+    mov     rcx, [rdx+0x68]
+    mov     rax, [rdx+0x70]
+    mov     rdi, [rdx+0x40]
+    mov     rsi, [rdx+0x48]
+    mov     rbx, [rdx+0x58]         ; restore RBX LAST (no longer need base as RBX)
+    jmp     qword [rdx+0x80]
 
 .resume:
     ret

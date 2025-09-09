@@ -61,7 +61,7 @@ esp-populate: boot kernel esp-prep
 .PHONY: run
 run: esp-populate
 	@echo "==> Launching QEMU"
-	$(QEMU) -machine $(QEMU_MACHINE) -m $(QEMU_MEM) -cpu Haswell \
+	$(QEMU) -machine $(QEMU_MACHINE) -m $(QEMU_MEM) -cpu max \
 		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
 		-drive format=raw,file=fat:rw:$(ESP) \
 		$(QEMU_EXTRA)

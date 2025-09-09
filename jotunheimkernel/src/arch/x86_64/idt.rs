@@ -52,6 +52,7 @@ unsafe extern "C" {
     fn isr_df_stub();
     fn isr_ud_stub();
     fn isr_timer_stub();
+    fn isr_spurious_stub();
 }
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
@@ -65,7 +66,6 @@ const IST_PF: u8 = 2; // uses interrupt_stack_table[1]
 const IST_TIMER: u8 = 3;
 const IST_GP: u8 = 4;
 const IST_UD: u8 = 5;
-
 fn set_gate_raw(
     idt_base: *mut IdtEntry,
     idx: usize,
@@ -133,7 +133,7 @@ pub fn init() {
         set_gate(8, isr_df_stub, IST_DF, 0); // #DF with IST1
         set_gate(6, isr_ud_stub, IST_UD, 0); // #UD
         set_gate(apic::TIMER_VECTOR as usize, isr_timer_stub, IST_TIMER, 0);
-
+        set_gate(0xFF as usize, isr_spurious_stub, 0, 0);
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
         load_idt_ptr(idt_ptr);
     }
@@ -154,6 +154,10 @@ pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
     loop {
         x86_64::instructions::hlt();
     }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn isr_spurious_rust(_vec: u64, _err: u64) {
+    unsafe { apic::eoi() };
 }
 
 #[unsafe(no_mangle)]

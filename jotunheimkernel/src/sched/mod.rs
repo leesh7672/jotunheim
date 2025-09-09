@@ -11,6 +11,7 @@ use alloc::{boxed::Box, vec::Vec};
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
 use crate::arch::x86_64::simd;
+use crate::arch::x86_64::simd::caps as simd_caps;
 
 /* ------------------------------- Types & consts ------------------------------- */
 
@@ -81,7 +82,7 @@ pub extern "C" fn sched_exit_current_trampoline() -> ! {
 
 extern "C" fn idle_main(_arg: usize) -> ! {
     loop {
-        yield_now();
+        x86_64::instructions::hlt();
     }
 }
 
@@ -109,11 +110,12 @@ pub fn init() {
             ctx: CpuContext {
                 rip: kthread_trampoline as u64,
                 rsp: init_rsp as u64,
+                rflags: 0x202,
                 ..CpuContext::default()
             },
             kstack_top: top,
             simd: sched_simd::SimdArea::alloc(),
-            time_slice: DEFAULT_SLICE,
+            time_slice: u32::MAX,
         });
         rq.next_id += 1;
         rq.current = Some(0);
@@ -138,6 +140,7 @@ pub fn spawn_kthread(
     let ctx = CpuContext {
         rip: kthread_trampoline as u64,
         rsp: init_rsp as u64,
+        rflags: 0x202,
         ..CpuContext::default()
     };
 
@@ -233,7 +236,7 @@ pub fn yield_now() {
 
     if let Some(area) = prev_simd_ptr {
         unsafe {
-            simd::xsave_all(area);
+            simd::save(area);
         }
     }
     unsafe {
@@ -241,7 +244,7 @@ pub fn yield_now() {
     }
     if let Some(area) = next_simd_ptr {
         unsafe {
-            simd::xrstor_all(area);
+            simd::restore(area);
         }
     }
 }
