@@ -56,13 +56,17 @@ pub extern "C" fn _start() -> ! {
     }
 }
 extern "C" fn kthread_demo(_arg: usize) -> ! {
+    let mut a = 0u128;
     loop {
-        println!("[Threading 1]");
+        println!("[Threading 1] {a}");
+        a += 1;
     }
 }
 extern "C" fn kthread_demo2(_arg: usize) -> ! {
+    let mut b = 0u128;
     loop {
-        println!("[Threading 2]");
+        println!("[Threading 2] {b}");
+        b += 1;
     }
 }
 
