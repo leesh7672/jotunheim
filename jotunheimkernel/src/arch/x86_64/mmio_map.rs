@@ -5,16 +5,7 @@ use crate::mem::simple_alloc::TinyBump;
 use crate::println;
 
 use x86_64::VirtAddr;
-use x86_64::structures::paging::{
-    Mapper, Page, PageTableFlags as F, Size2MiB, Size4KiB, mapper::MapToError,
-};
-
-/// Errors from early APIC MMIO mapping.
-#[derive(Debug)]
-pub enum MmioMapErr {
-    Split,
-    Map(MapToError<Size4KiB>),
-}
+use x86_64::structures::paging::{Mapper, Page, PageTableFlags as F, Size2MiB};
 
 fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
     let page2m = Page::<Size2MiB>::containing_address(VirtAddr::new(va_2m));
@@ -27,7 +18,7 @@ fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
     }
 }
 
-pub fn early_map_mmio_for_apics() -> Result<(), MmioMapErr> {
+pub fn early_map_mmio_for_apics() {
     let alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
     let mut mapper = unsafe { active_offset_mapper(0) };
 
@@ -42,11 +33,6 @@ pub fn early_map_mmio_for_apics() -> Result<(), MmioMapErr> {
         let (cr3, flags) = Cr3::read();
         Cr3::write(cr3, flags); // flush non-global
     }
-
-    // That’s enough for early APIC bring-up. If you later *need* 4 KiB UC pages,
-    // you can perform the split after you’ve switched to your own CR3 and things are calm.
-
-    Ok(())
 }
 
 /* -------------------- Debug helpers: dump current mapping -------------------- */

@@ -11,9 +11,7 @@ fn log_cr3(tag: &str) {
 pub fn init_arch() {
     gdt::init();
     idt::init();
-    // Do not touch IOAPIC/LAPIC here—only map PTEs.
-    let _ = mmio_map::early_map_mmio_for_apics();
-    // Now it should be safe to touch APICs
+    mmio_map::early_map_mmio_for_apics();
     apic::init();
     unsafe {
         ioapic::mask_all();
@@ -22,6 +20,6 @@ pub fn init_arch() {
 
     sched::init();
 
-    apic::start_best_timer_hz(1_000);
     instructions::interrupts::enable();
+    apic::start_best_timer_hz(1_000);
 }
