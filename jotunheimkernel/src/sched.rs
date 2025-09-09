@@ -1,7 +1,7 @@
 use spin::{Mutex, Once};
 
+use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
-
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TaskState {
@@ -177,9 +177,7 @@ pub fn yield_now() {
     rq.need_resched = false;
     drop(rq);
 
-    unsafe {
-        crate::arch::x86_64::context::switch(prev_ctx, next_ctx);
-    }
+    context::switch(prev_ctx, next_ctx);
 }
 
 fn pick_next(rq: &RunQueue, cur: usize) -> Option<usize> {
