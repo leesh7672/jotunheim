@@ -1,5 +1,4 @@
 // src/sched/simd.rs
-use crate::mem::{PAGE_SIZE, alloc_pages, free_pages, unmap_pages};
 use core::arch::asm;
 use core::ptr::NonNull;
 

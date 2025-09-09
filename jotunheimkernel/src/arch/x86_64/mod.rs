@@ -1,14 +1,19 @@
-use crate::arch::x86_64::{apic, gdt, idt, ioapic, mmio_map, tsc};
+pub mod apic;
+pub mod context;
+pub mod gdt;
+pub mod idt;
+pub mod ioapic;
+pub mod mmio_map;
+pub mod serial;
+pub mod simd;
+pub mod tsc;
+
 use crate::{println, sched};
 use x86_64::instructions;
 use x86_64::registers::control::Cr3;
 
-fn log_cr3(tag: &str) {
-    let (lvl4, _) = Cr3::read();
-    println!("[PAGING] {tag}: CR3 = {:#x}", lvl4.start_address().as_u64());
-}
-
-pub fn init_arch() {
+pub fn init() {
+    simd::enable_sse_avx();
     gdt::init();
     idt::init();
     let _ = mmio_map::early_map_mmio_for_apics();

@@ -6,21 +6,9 @@ mod mem;
 mod sched;
 mod util;
 mod arch {
-    pub mod x86_64 {
-        pub mod apic;
-        pub mod context;
-        pub mod gdt;
-        pub mod idt;
-        pub mod init;
-        pub mod ioapic;
-        pub mod mmio_map;
-        pub mod serial;
-        pub mod simd;
-        pub mod tsc;
-    }
+    pub mod x86_64;
 }
 
-use crate::arch::x86_64::simd;
 use core::panic::PanicInfo;
 use x86_64::instructions::interrupts;
 
@@ -37,7 +25,7 @@ pub extern "C" fn _start() -> ! {
     }
     println!("[JOTUNHEIM] Kernel starts.");
 
-    init::init_arch();
+    arch::x86_64::init();
     apic::snapshot_debug();
 
     let ptr = core::ptr::addr_of_mut!(DEMO_STACK) as *mut u8;

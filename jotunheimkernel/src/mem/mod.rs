@@ -4,7 +4,7 @@ pub mod simple_alloc;
 
 use spin::Mutex;
 use x86_64::{
-    PhysAddr, VirtAddr,
+    VirtAddr,
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB,
     },
@@ -28,38 +28,40 @@ fn active_mapper() -> OffsetPageTable<'static> {
 
 // NOTE: early bring-up: contiguous PA via TinyBump, map at VA=PA+offset
 pub unsafe fn alloc_pages(pages: usize) -> Option<*mut u8> {
-    let mut fa = FRAME_ALLOC.lock();
-    let fa = fa.as_mut()?;
-    let first = fa.allocate_frame()?;
-    let mut map = active_mapper();
-    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
-
-    let mut frame = first;
-    let mut va_u64 = frame.start_address().as_u64() + PHYS_TO_VIRT_OFFSET;
-    let mut page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_u64));
     unsafe {
-        map.map_to(page, frame, flags, &mut DummyAlloc)
-            .ok()?
-            .flush();
-    }
+        let mut fa = FRAME_ALLOC.lock();
+        let fa = fa.as_mut()?;
+        let first = fa.allocate_frame()?;
+        let mut map = active_mapper();
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
 
-    for _ in 1..pages {
-        let next = fa.allocate_frame()?;
-        // require contiguity for simplicity
-        if next.start_address().as_u64() != frame.start_address().as_u64() + 0x1000 {
-            return None;
-        }
-        frame = next;
-        va_u64 += 0x1000;
-        page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_u64));
+        let mut frame = first;
+        let mut va_u64 = frame.start_address().as_u64() + PHYS_TO_VIRT_OFFSET;
+        let mut page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_u64));
         unsafe {
             map.map_to(page, frame, flags, &mut DummyAlloc)
                 .ok()?
                 .flush();
         }
-    }
 
-    Some((first.start_address().as_u64() + PHYS_TO_VIRT_OFFSET) as *mut u8)
+        for _ in 1..pages {
+            let next = fa.allocate_frame()?;
+            // require contiguity for simplicity
+            if next.start_address().as_u64() != frame.start_address().as_u64() + 0x1000 {
+                return None;
+            }
+            frame = next;
+            va_u64 += 0x1000;
+            page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_u64));
+            unsafe {
+                map.map_to(page, frame, flags, &mut DummyAlloc)
+                    .ok()?
+                    .flush();
+            }
+        }
+
+        Some((first.start_address().as_u64() + PHYS_TO_VIRT_OFFSET) as *mut u8)
+    }
 }
 
 pub fn unmap_pages(base: *mut u8, pages: usize) -> Result<(), ()> {

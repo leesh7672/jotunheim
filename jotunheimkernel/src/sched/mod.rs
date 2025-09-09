@@ -168,15 +168,28 @@ pub fn yield_now() {
     rq.tasks[next_idx].as_mut().unwrap().state = TaskState::Running;
 
     // take context pointers while lock is held
-    let (prev_ctx, next_ctx) = {
-        let prev = &mut rq.tasks[cur].as_mut().unwrap().ctx as *mut _;
-        let next = &rq.tasks[next_idx].as_ref().unwrap().ctx as *const _;
+    let (prev, next) = {
+        let prev = &mut rq.tasks[cur].as_mut().unwrap();
+        let next = &rq.tasks[next_idx].as_ref().unwrap();
         (prev, next)
+    };
+
+    let (prev_ctx, next_ctx) = {
+        let prev_ctx: *mut CpuContext = &mut prev.ctx as *mut _;
+        let next_ctx: *const CpuContext = &next.ctx as *const _;
+        (prev_ctx, next_ctx)
     };
     rq.current = Some(next_idx);
     rq.need_resched = false;
     drop(rq);
 
+    if let Some(ref simd) = prev.simd {
+        sched_simd::xsave(simd.as_mut_ptr());
+    }
+
+    if let Some(ref simd) = next.simd {
+        sched_simd::xrstor(simd.as_mut_ptr());
+    }
     context::switch(prev_ctx, next_ctx);
 }
 
