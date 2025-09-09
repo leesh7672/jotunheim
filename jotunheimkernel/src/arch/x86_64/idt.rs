@@ -183,14 +183,20 @@ pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64) -> ! {
         x86_64::instructions::hlt();
     }
 }
+#[repr(C)]
+pub struct IretFrame {
+    pub rip: u64,
+    pub cs: u64,
+    pub rflags: u64,
+}
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) -> u64 {
+pub extern "C" fn isr_timer_rust() {
     sched::tick();
     apic::timer_isr_eoi_and_rearm_deadline();
-    if sched::should_preempt_now() {
-        sched::preempt_trampoline as u64
-    } else {
-        0
+    if crate::sched::should_preempt_now() {
+        unsafe {
+            sched::preempt_trampoline();
+        }
     }
 }

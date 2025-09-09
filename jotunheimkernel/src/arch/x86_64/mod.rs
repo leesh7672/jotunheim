@@ -26,8 +26,6 @@ pub fn init(boot: &BootInfo) {
         ioapic::mask_all();
     }
     apic::open_all_irqs();
-
     sched::init();
     apic::start_timer_hz(1_000);
-    instructions::interrupts::enable();
 }

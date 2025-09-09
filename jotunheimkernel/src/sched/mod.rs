@@ -90,35 +90,33 @@ extern "C" fn idle_main(_arg: usize) -> ! {
 pub fn init() {
     static ONCE: spin::Once<()> = spin::Once::new();
     ONCE.call_once(|| {
-        without_interrupts(|| {
-            let mut g = rq().lock();
-            let rq: &mut RunQueue = &mut *g;
+        let mut g = rq().lock();
+        let rq: &mut RunQueue = &mut *g;
 
-            // Build initial idle thread stack frame
-            let base = unsafe { core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8 };
-            let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
-            let init_rsp = (top - 16) as *mut u64;
+        // Build initial idle thread stack frame
+        let base = unsafe { core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8 };
+        let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
+        let init_rsp = (top - 16) as *mut u64;
 
-            unsafe {
-                core::ptr::write(init_rsp.add(0), 0u64);
-                core::ptr::write(init_rsp.add(1), idle_main as u64);
-            }
+        unsafe {
+            core::ptr::write(init_rsp.add(0), 0u64);
+            core::ptr::write(init_rsp.add(1), idle_main as u64);
+        }
 
-            rq.tasks[0] = Some(Task {
-                id: rq.next_id,
-                state: TaskState::Running,
-                ctx: CpuContext {
-                    rip: kthread_trampoline as u64,
-                    rsp: init_rsp as u64,
-                    ..CpuContext::default()
-                },
-                kstack_top: top,
-                simd: sched_simd::SimdArea::alloc(),
-                time_slice: u32::MAX,
-            });
-            rq.next_id += 1;
-            rq.current = Some(0);
+        rq.tasks[0] = Some(Task {
+            id: rq.next_id,
+            state: TaskState::Running,
+            ctx: CpuContext {
+                rip: kthread_trampoline as u64,
+                rsp: init_rsp as u64,
+                ..CpuContext::default()
+            },
+            kstack_top: top,
+            simd: sched_simd::SimdArea::alloc(),
+            time_slice: DEFAULT_SLICE,
         });
+        rq.next_id += 1;
+        rq.current = Some(0);
     });
 }
 
@@ -195,8 +193,12 @@ pub fn yield_now() {
         let rq: &mut RunQueue = &mut *g;
 
         let cur = rq.current.expect("no current");
-        let Some(nxt) = pick_next(rq, cur) else { return; };
-        if nxt == cur { return; }
+        let Some(nxt) = pick_next(rq, cur) else {
+            return;
+        };
+        if nxt == cur {
+            return;
+        }
 
         {
             let t = rq.tasks[cur].as_mut().unwrap();
@@ -210,11 +212,17 @@ pub fn yield_now() {
 
         let (prev_ctx, prev_simd_ptr) = {
             let prev = rq.tasks[cur].as_mut().unwrap();
-            (&mut prev.ctx as *mut CpuContext, prev.simd.as_ref().map(|s| s.as_mut_ptr()))
+            (
+                &mut prev.ctx as *mut CpuContext,
+                prev.simd.as_ref().map(|s| s.as_mut_ptr()),
+            )
         };
         let (next_ctx, next_simd_ptr) = {
             let next = rq.tasks[nxt].as_ref().unwrap();
-            (&next.ctx as *const CpuContext, next.simd.as_ref().map(|s| s.as_mut_ptr()))
+            (
+                &next.ctx as *const CpuContext,
+                next.simd.as_ref().map(|s| s.as_mut_ptr()),
+            )
         };
 
         rq.current = Some(nxt);
@@ -223,15 +231,27 @@ pub fn yield_now() {
         (prev_ctx, next_ctx, prev_simd_ptr, next_simd_ptr)
     };
 
-    if let Some(area) = prev_simd_ptr { unsafe { simd::xsave_all(area); } }
-    unsafe { context::switch(prev_ctx, next_ctx); }
-    if let Some(area) = next_simd_ptr { unsafe { simd::xrstor_all(area); } }
+    if let Some(area) = prev_simd_ptr {
+        unsafe {
+            simd::xsave_all(area);
+        }
+    }
+    unsafe {
+        context::switch(prev_ctx, next_ctx);
+    }
+    if let Some(area) = next_simd_ptr {
+        unsafe {
+            simd::xrstor_all(area);
+        }
+    }
 }
 
 fn pick_next(rq: &RunQueue, cur: usize) -> Option<usize> {
     for off in 1..rq.tasks.len() {
         let i = (cur + off) % rq.tasks.len();
-        if i == 0 { continue; }
+        if i == 0 {
+            continue;
+        }
         if let Some(t) = &rq.tasks[i] {
             if matches!(t.state, TaskState::Ready) {
                 return Some(i);
@@ -256,11 +276,15 @@ pub fn exit_current() -> ! {
 
         let Some(next_idx) = pick_next(rq, cur) else {
             drop(g);
-            loop { x86_64::instructions::hlt(); }
+            loop {
+                x86_64::instructions::hlt();
+            }
         };
         if next_idx == cur {
             drop(g);
-            loop { x86_64::instructions::hlt(); }
+            loop {
+                x86_64::instructions::hlt();
+            }
         }
 
         rq.tasks[next_idx].as_mut().unwrap().state = TaskState::Running;
@@ -272,8 +296,12 @@ pub fn exit_current() -> ! {
         (prev_ctx, next_ctx)
     };
 
-    unsafe { context::switch(prev_ctx, next_ctx); }
-    loop { x86_64::instructions::hlt(); }
+    unsafe {
+        context::switch(prev_ctx, next_ctx);
+    }
+    loop {
+        x86_64::instructions::hlt();
+    }
 }
 
 /* ------------------------------- Helper wrapper ------------------------------ */

@@ -287,26 +287,41 @@ fn main() -> Status {
         mmap_ptr: core::ptr::null(),
         mmap_len: 0,
     };
-    unsafe {
-        (bi_page.as_ptr() as *mut BootInfo).write(bi);
-    }
-
-    unsafe {
-        write_trampoline(
-            tramp_page.as_ptr(),
-            pml4_phys,
-            entry_va,
-            bi_page.as_ptr() as u64,
-            stack_top_aligned,
-        );
-    }
 
     serial_line("[serial] ExitBootServices …");
     let _ = unsafe { boot::exit_boot_services(None) };
 
-    serial_line("[serial] calling trampoline");
-    let f: extern "sysv64" fn() -> ! = unsafe { transmute(tramp_page.as_ptr() as usize) };
-    f();
+    unsafe {
+        enter_kernel(
+            pml4_phys,
+            stack_top_sysv,
+            entry_va,
+            bi_page.as_ptr() as *const BootInfo,
+        );
+    }
+}
+#[inline(never)]
+unsafe extern "sysv64" fn enter_kernel(
+    pml4_phys: u64,
+    stack_top_sysv: u64,
+    entry_va: u64,
+    bi_ptr: *const BootInfo,
+) -> ! {
+    unsafe {
+        core::arch::asm!(
+            "cli",
+            // load CR3 = pml4_phys (in rdi)
+            "mov rax, rdi",
+            "mov cr3, rax",
+            // switch to kernel stack (rsi)
+            "mov rsp, rsi",
+            // first arg to kernel = &BootInfo (rcx -> rdi under SysV)
+            "mov rdi, rcx",
+            // jump to entry (rdx)
+            "jmp rdx",
+            options(noreturn)
+        );
+    }
 }
 
 /* ================== Logging & helpers ================== */
@@ -497,77 +512,4 @@ fn build_pagetables_exec(
         va += 2 * 1024 * 1024;
     }
     Ok(pml4_phys)
-}
-unsafe fn write_trampoline(
-    dst: *mut u8,
-    pml4_phys: u64,
-    entry_va: u64,
-    bi_ptr: u64,
-    stack_top_sysv: u64,
-) {
-    let mut p = dst;
-
-    // cli
-    *p = 0xFA;
-    p = p.add(1);
-
-    // mov rax, <pml4_phys>
-    for b in [0x48u8, 0xB8] {
-        *p = b;
-        p = p.add(1);
-    }
-    core::ptr::write_unaligned(p as *mut u64, pml4_phys);
-    p = p.add(8);
-
-    // mov cr3, rax
-    for b in [0x0Fu8, 0x22, 0xD8] {
-        *p = b;
-        p = p.add(1);
-    }
-
-    // mov rsp, <stack_top_sysv>  (RSP%16==8 for SysV on entry)
-    for b in [0x48u8, 0xBC] {
-        *p = b;
-        p = p.add(1);
-    }
-    core::ptr::write_unaligned(p as *mut u64, stack_top_sysv);
-    p = p.add(8);
-
-    // --- POST-CR3 SERIAL “TS” ---
-    // edx = 0x3F8
-    for b in [0xBAu8, 0xF8, 0x03, 0x00, 0x00] {
-        *p = b;
-        p = p.add(1);
-    }
-    // add edx, 5; in al, dx; sub edx, 5
-    for b in [0x83u8, 0xC2, 0x05, 0xEC, 0x83, 0xEA, 0x05] {
-        *p = b;
-        p = p.add(1);
-    }
-
-    // Disable interrupts again (explicit)
-    *p = 0xFA;
-    p = p.add(1);
-
-    // mov rdi, <bootinfo>
-    for b in [0x48u8, 0xBF] {
-        *p = b;
-        p = p.add(1);
-    }
-    core::ptr::write_unaligned(p as *mut u64, bi_ptr);
-    p = p.add(8);
-
-    // mov rax, <entry_va>
-    for b in [0x48u8, 0xB8] {
-        *p = b;
-        p = p.add(1);
-    }
-    core::ptr::write_unaligned(p as *mut u64, entry_va);
-    p = p.add(8);
-
-    // jmp rax
-    for b in [0xFFu8, 0xE0] {
-        *p = b;
-        p = p.add(1);
-    }
 }
