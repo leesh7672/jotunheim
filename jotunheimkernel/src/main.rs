@@ -24,7 +24,7 @@ mod arch {
 }
 
 use core::panic::PanicInfo;
-use x86_64::instructions::{hlt, interrupts};
+use x86_64::instructions::interrupts;
 
 use crate::arch::x86_64::{apic, init, serial};
 
