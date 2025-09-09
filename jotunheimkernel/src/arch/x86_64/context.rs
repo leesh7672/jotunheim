@@ -15,7 +15,7 @@ unsafe extern "C" {
     fn __ctx_switch(prev: *mut CpuContext, next: *const CpuContext);
 }
 
-pub fn switch(prev: *mut CpuContext, next: *const CpuContext) {
+pub unsafe fn switch(prev: *mut CpuContext, next: *const CpuContext) {
     unsafe {
         __ctx_switch(prev, next);
     }
