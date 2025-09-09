@@ -5,20 +5,27 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::{arch::asm, mem::transmute, ptr};
+use core::{arch::asm, ptr};
+
 use log::{error, info};
+use uefi::boot::{AllocateType, MemoryType};
+use uefi::mem::memory_map::MemoryMap;
 use uefi::prelude::*;
 use uefi::{
     boot,
-    boot::{AllocateType, MemoryType},
     fs::{FileSystem, Path},
 };
+
 use xmas_elf::ElfFile;
 use xmas_elf::header::{Class, Data, Machine, Type as ElfType};
 use xmas_elf::program::Type as PhType;
 
+/* ============================ Global allocator ============================ */
+
 #[global_allocator]
 static ALLOCATOR: uefi::allocator::Allocator = uefi::allocator::Allocator;
+
+/* ================================ Panic ================================== */
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -29,17 +36,44 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     }
 }
 
+/* =========================== Kernel-facing ABI =========================== */
+
 #[repr(C)]
-pub struct BootInfo {
-    pub load_base: u64,
-    pub load_size: u64,
-    pub load_bias: u64,
-    pub entry: u64, // kernel entry VA
-    pub mmap_ptr: *const u8,
-    pub mmap_len: usize,
+#[derive(Debug, Copy, Clone)]
+pub struct Framebuffer {
+    pub addr: u64, // physical address of linear framebuffer
+    pub width: u32,
+    pub height: u32,
+    pub pitch: u32,        // bytes per scanline
+    pub bpp: u32,          // bits per pixel (commonly 32)
+    pub pixel_format: u32, // kernel enum/discriminant
 }
 
-/* ================== Serial (QEMU `-serial stdio`) ================== */
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct MemoryRegion {
+    pub phys_start: u64,
+    pub virt_start: u64, // 0 at boot (or phys+offset if you prefer)
+    pub len: u64,
+    pub typ: u32,  // kernel enum/discriminant
+    pub attr: u64, // attribute bits
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct BootInfo {
+    pub rsdp_addr: u64,
+    pub memory_map: *const MemoryRegion,
+    pub memory_map_len: usize,
+    pub framebuffer: Framebuffer,
+    pub kernel_phys_base: u64,
+    pub kernel_virt_base: u64,
+    pub early_heap_paddr: u64,
+    pub early_heap_len: u64,
+}
+
+/* ========================== Serial (QEMU stdio) ========================== */
+
 #[inline(always)]
 unsafe fn serial_init() {
     const COM1: u16 = 0x3F8;
@@ -59,7 +93,7 @@ unsafe fn serial_putc(c: u8) {
         asm!("in al, dx", out("al") lsr, in("dx") COM1 + 5);
         if (lsr & 0x20) != 0 {
             break;
-        } // THR empty
+        }
     }
     asm!("out dx, al", in("dx") COM1, in("al") c);
 }
@@ -79,15 +113,307 @@ macro_rules! slog {
     }};
 }
 
-/* =================================== Entry =================================== */
+/* ============================ Small utilities ============================ */
+
+#[inline(always)]
+fn log_step(msg: &str) {
+    info!("[step] {msg}");
+    boot::stall(80_000);
+}
+#[cold]
+fn die(_: Status, msg: &core::fmt::Arguments) -> ! {
+    error!("[fatal] {}", msg);
+    serial_line("[serial][FATAL] abort");
+    boot::stall(1_000_000);
+    unsafe {
+        loop {
+            asm!("hlt");
+        }
+    }
+}
+#[inline]
+fn align_up(x: u64, a: u64) -> u64 {
+    let m = a.max(1);
+    (x + m - 1) & !(m - 1)
+}
+#[inline]
+fn align_down(x: u64, a: u64) -> u64 {
+    x & !(a - 1)
+}
+fn must_alloc_page(kind: MemoryType, name: &str) -> core::ptr::NonNull<u8> {
+    boot::allocate_pages(AllocateType::AnyPages, kind, 1).unwrap_or_else(|e| {
+        die(
+            Status::OUT_OF_RESOURCES,
+            &format_args!("alloc {name} {:?}", e),
+        )
+    })
+}
+
+/* =========================== ACPI/GOP/MemMap ============================ */
+
+use core::cell::Cell;
+
+fn find_rsdp() -> u64 {
+    use uefi::{system, table::cfg};
+    let rsdp = Cell::new(0u64);
+    system::with_config_table(|ct| {
+        for e in ct {
+            if e.guid == cfg::ACPI2_GUID || e.guid == cfg::ACPI_GUID {
+                rsdp.set(e.address as u64); // interior mutability; OK in Fn
+                break;
+            }
+        }
+    });
+    rsdp.get()
+}
+
+fn get_framebuffer() -> Framebuffer {
+    use uefi::proto::console::gop::GraphicsOutput;
+
+    // Find & open GOP
+    let h = boot::get_handle_for_protocol::<GraphicsOutput>().expect("No GOP handle found");
+    let mut gop =
+        unsafe { boot::open_protocol_exclusive::<GraphicsOutput>(h).expect("Open GOP failed") };
+
+    let info = gop.current_mode_info();
+    let (w, h) = info.resolution();
+    let mut fb = gop.frame_buffer();
+
+    // Map PixelFormat to your kernel enum if you need; here 0=RGB,1=BGR,2=Bitmask,3=BltOnly
+    let pf = match info.pixel_format() {
+        uefi::proto::console::gop::PixelFormat::Rgb => 0,
+        uefi::proto::console::gop::PixelFormat::Bgr => 1,
+        uefi::proto::console::gop::PixelFormat::Bitmask => 2,
+        uefi::proto::console::gop::PixelFormat::BltOnly => 3,
+    };
+
+    Framebuffer {
+        addr: fb.as_mut_ptr() as u64,
+        width: w as u32,
+        height: h as u32,
+        pitch: (info.stride() as u32) * 4,
+        bpp: 32,
+        pixel_format: pf,
+    }
+}
+
+fn uefi_type_to_kernel(t: boot::MemoryType) -> u32 {
+    use boot::MemoryType as U;
+    match t {
+        U::CONVENTIONAL => 1,
+        U::LOADER_CODE => 2,
+        U::LOADER_DATA => 3,
+        U::BOOT_SERVICES_CODE => 4,
+        U::BOOT_SERVICES_DATA => 5,
+        U::RUNTIME_SERVICES_CODE => 6,
+        U::RUNTIME_SERVICES_DATA => 7,
+        U::ACPI_RECLAIM => 8,
+        _ => 0,
+    }
+}
+
+fn build_memory_regions_vec() -> Vec<MemoryRegion> {
+    // Newer uefi crate API: pass a MemoryType; returns an owned map you can iterate.
+    let mm = boot::memory_map(MemoryType::LOADER_DATA).expect("memory_map");
+    let mut out = Vec::new();
+    for d in mm.entries() {
+        let len = (d.page_count as u64) * 4096;
+        out.push(MemoryRegion {
+            phys_start: d.phys_start as u64,
+            virt_start: 0,
+            len,
+            typ: uefi_type_to_kernel(d.ty),
+            attr: d.att.bits() as u64,
+        });
+    }
+    out
+}
+
+/* ================================ Paging ================================= */
+
+const PTE_P: u64 = 1 << 0;
+const PTE_RW: u64 = 1 << 1;
+const PTE_PS: u64 = 1 << 7; // 2 MiB page
+const ADDR_MASK: u64 = 0x000F_FFFF_FFFF_F000;
+
+#[inline]
+fn pml4_index(va: u64) -> usize {
+    ((va >> 39) & 0x1ff) as usize
+}
+#[inline]
+fn pdpt_index(va: u64) -> usize {
+    ((va >> 30) & 0x1ff) as usize
+}
+#[inline]
+fn pd_index(va: u64) -> usize {
+    ((va >> 21) & 0x1ff) as usize
+}
+#[inline]
+fn pt_index(va: u64) -> usize {
+    ((va >> 12) & 0x1ff) as usize
+}
+
+fn alloc_zero_page(kind: MemoryType) -> Option<(*mut u64, u64)> {
+    let p = boot::allocate_pages(AllocateType::AnyPages, kind, 1).ok()?;
+    let phys = p.as_ptr() as usize as u64;
+    unsafe { core::ptr::write_bytes(p.as_ptr(), 0, 4096) };
+    Some((p.as_ptr() as *mut u64, phys))
+}
+
+unsafe fn ensure_pdpt(pml4: *mut u64, pml4i: usize) -> Result<*mut u64, ()> {
+    let e = *pml4.add(pml4i);
+    if e & PTE_P == 0 {
+        let (pdpt, phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
+        *pml4.add(pml4i) = phys | PTE_P | PTE_RW;
+        Ok(pdpt)
+    } else {
+        Ok((e & ADDR_MASK) as *mut u64)
+    }
+}
+unsafe fn ensure_pd(pdpt: *mut u64, pdpti: usize) -> Result<*mut u64, ()> {
+    let e = *pdpt.add(pdpti);
+    if e & PTE_P == 0 {
+        let (pd, phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
+        *pdpt.add(pdpti) = phys | PTE_P | PTE_RW;
+        Ok(pd)
+    } else {
+        if e & PTE_PS != 0 {
+            return Err(());
+        }
+        Ok((e & ADDR_MASK) as *mut u64)
+    }
+}
+unsafe fn ensure_pt(pd: *mut u64, pdi: usize) -> Result<*mut u64, ()> {
+    let e = *pd.add(pdi);
+    if e & PTE_P == 0 {
+        let (pt, phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
+        *pd.add(pdi) = phys | PTE_P | PTE_RW;
+        Ok(pt)
+    } else {
+        if e & PTE_PS != 0 {
+            return Err(());
+        }
+        Ok((e & ADDR_MASK) as *mut u64)
+    }
+}
+
+// Map [start_va, end_va) with 4 KiB pages, phys = va + delta
+fn map_4k_offset(pml4: *mut u64, start_va: u64, end_va: u64, delta: i128) -> Result<(), ()> {
+    let mut va = align_down(start_va, 0x1000);
+    let end = align_up(end_va, 0x1000);
+    while va < end {
+        unsafe {
+            let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
+            let pd = ensure_pd(pdpt, pdpt_index(va))?;
+            let pt = ensure_pt(pd, pd_index(va))?;
+            let phys = ((va as i128) + delta) as u64 & ADDR_MASK;
+            *pt.add(pt_index(va)) = phys | PTE_P | PTE_RW;
+        }
+        va += 0x1000;
+    }
+    Ok(())
+}
+fn map_4k_ident(pml4: *mut u64, start_va: u64, end_va: u64) -> Result<(), ()> {
+    map_4k_offset(pml4, start_va, end_va, 0)
+}
+
+unsafe fn map_2mib_page(pml4: *mut u64, va: u64, phys: u64) -> Result<(), ()> {
+    let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
+    let pd = ensure_pd(pdpt, pdpt_index(va))?;
+    if *pd.add(pd_index(va)) & PTE_P == 0 {
+        *pd.add(pd_index(va)) = align_down(phys, 2 * 1024 * 1024) | PTE_P | PTE_RW | PTE_PS;
+    }
+    Ok(())
+}
+
+// Map the kernel VA range [min_vaddr..max_vaddr) to phys starting at `load_base`,
+// and identity-map 0..ident_bytes (skipping overlap with kernel VA span).
+fn build_pagetables_exec(
+    load_base: u64,
+    min_vaddr: u64,
+    max_vaddr: u64,
+    ident_bytes: u64,
+) -> Result<u64, ()> {
+    let (pml4, pml4_phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
+    let first_2mib_end = 2 * 1024 * 1024;
+
+    // Map kernel range by constant offset
+    let delta = load_base as i128 - min_vaddr as i128;
+
+    // Kernel slice below 2MiB: 4K pages
+    if min_vaddr < first_2mib_end {
+        let low_end = core::cmp::min(max_vaddr, first_2mib_end);
+        map_4k_offset(pml4, min_vaddr, low_end, delta)?;
+    }
+    // Kernel remainder: 2MiB pages
+    let mut big_va = core::cmp::max(first_2mib_end, align_up(min_vaddr, 2 * 1024 * 1024));
+    let big_end = align_up(max_vaddr, 2 * 1024 * 1024);
+    while big_va < big_end {
+        let phys = ((big_va as i128) + delta) as u64;
+        unsafe {
+            map_2mib_page(pml4, big_va, phys)?;
+        }
+        big_va += 2 * 1024 * 1024;
+    }
+
+    // Identity-map 0..2MiB except the kernel's low slice
+    let id0_end = first_2mib_end;
+    if 0 < core::cmp::min(min_vaddr, id0_end) {
+        map_4k_ident(pml4, 0, core::cmp::min(min_vaddr, id0_end))?;
+    }
+    if max_vaddr < id0_end {
+        map_4k_ident(pml4, max_vaddr, id0_end)?;
+    }
+
+    // Identity-map [2MiB .. ident_bytes) with 2MiB pages, skipping overlap with kernel VA span
+    let mut va = core::cmp::max(first_2mib_end, align_down(0, 2 * 1024 * 1024));
+    let ident_end = align_up(ident_bytes, 2 * 1024 * 1024);
+    while va < ident_end {
+        let overlap_kernel = !(va + 2 * 1024 * 1024 <= min_vaddr || va >= max_vaddr);
+        if !overlap_kernel {
+            unsafe {
+                map_2mib_page(pml4, va, va)?;
+            }
+        }
+        va += 2 * 1024 * 1024;
+    }
+    Ok(pml4_phys)
+}
+
+/* ========================= Low trampoline (blob) ========================= */
+
+#[inline(always)]
+unsafe fn enter_kernel_via_trampoline(
+    tramp_page: core::ptr::NonNull<u8>,
+    pml4_phys: u64,
+    stack_top_sysv: u64,
+    entry_va: u64,
+    bi_ptr: *const BootInfo,
+) -> ! {
+    // cli; mov cr3, rdi; mov rsp, rsi; mov rdi, rcx; jmp rdx
+    const CODE: [u8; 12] = [
+        0xFA, // cli
+        0x0F, 0x22, 0xDF, // mov cr3, rdi
+        0x48, 0x89, 0xF4, // mov rsp, rsi
+        0x48, 0x89, 0xCF, // mov rdi, rcx
+        0xFF, 0xE2, // jmp rdx
+    ];
+
+    core::ptr::copy_nonoverlapping(CODE.as_ptr(), tramp_page.as_ptr(), CODE.len());
+
+    let tramp: extern "sysv64" fn(u64, u64, u64, *const BootInfo) -> ! =
+        core::mem::transmute(tramp_page.as_ptr());
+    tramp(pml4_phys, stack_top_sysv, entry_va, bi_ptr);
+}
+
+/* ================================= Entry ================================= */
+
 #[entry]
 fn main() -> Status {
     unsafe { serial_init() }
     serial_line(">>> JotunBoot entry");
 
-    if uefi::helpers::init().is_ok() {
-        serial_line("[serial] helpers::init OK");
-    } else {
+    if uefi::helpers::init().is_err() {
         serial_line("[serial][FATAL] helpers::init failed");
         unsafe {
             loop {
@@ -220,7 +546,7 @@ fn main() -> Status {
     serial_line("[serial] segments copied");
     log_step("segments copied");
 
-    // ---- Unified handoff (PIE or EXEC) ----
+    // ---- Handoff preparation ----
     let entry_va = elf.header.pt2.entry_point();
     if !(min_vaddr..max_vaddr).contains(&entry_va) {
         slog!(
@@ -229,15 +555,14 @@ fn main() -> Status {
             min_vaddr,
             max_vaddr
         );
-        // You can `die(...)` here if you prefer a hard stop.
     }
     slog!("[serial] entry_va = 0x{:x}", entry_va);
 
     let bi_page = must_alloc_page(MemoryType::LOADER_DATA, "BootInfo");
     let tramp_page = must_alloc_page(MemoryType::LOADER_CODE, "trampoline");
 
-    // Kernel stack
-    let stack_pages = 8; // 32 KiB
+    // Kernel stack (32 KiB)
+    let stack_pages = 8usize;
     let stack_base =
         boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, stack_pages)
             .unwrap_or_else(|e| {
@@ -254,20 +579,75 @@ fn main() -> Status {
     slog!("[serial] bootinfo   = 0x{:x}", bi_page.as_ptr() as u64);
     slog!("[serial] stack_top  = 0x{:x}", stack_top_aligned);
 
-    // Identity coverage must include trampoline/bootinfo/stack and the whole loaded image phys span.
+    // Early heap
+    const EARLY_HEAP_PAGES: usize = 128; // 512 KiB
+    let early_heap = boot::allocate_pages(
+        AllocateType::AnyPages,
+        MemoryType::LOADER_DATA,
+        EARLY_HEAP_PAGES,
+    )
+    .unwrap_or_else(|e| {
+        die(
+            Status::OUT_OF_RESOURCES,
+            &format_args!("early heap {:?}", e),
+        )
+    });
+    let early_heap_paddr = early_heap.as_ptr() as u64;
+    let early_heap_len = (EARLY_HEAP_PAGES * 4096) as u64;
+
+    // Copy UEFI memory map into our own buffer
+    let regions = build_memory_regions_vec();
+    let map_bytes = core::mem::size_of::<MemoryRegion>() * regions.len();
+    let map_pages = (map_bytes + 0xFFF) / 0x1000;
+    let memmap_pages =
+        boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, map_pages)
+            .unwrap_or_else(|e| {
+                die(
+                    Status::OUT_OF_RESOURCES,
+                    &format_args!("memmap pages {:?}", e),
+                )
+            });
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            regions.as_ptr() as *const u8,
+            memmap_pages.as_ptr(),
+            map_bytes,
+        );
+    }
+    let memory_map_ptr = memmap_pages.as_ptr() as *const MemoryRegion;
+    let memory_map_len = regions.len();
+
+    // GOP framebuffer & ACPI RSDP
+    let fb = get_framebuffer();
+    let rsdp_addr = find_rsdp();
+
+    // Identity coverage must include trampoline/bootinfo/stack/image span/early heap/memmap/fb.
     let tramp_end = tramp_page.as_ptr() as u64 + 0x1000;
     let bi_end = bi_page.as_ptr() as u64 + 0x1000;
-    let image_end = load_base + total_size as u64;
-    let mut ident_hi = *[tramp_end, bi_end, stack_top_aligned, image_end]
-        .iter()
-        .max()
-        .unwrap();
-    // Defensive: keep at least the first 1 GiB identity-mapped.
+    let stack_end = stack_top_aligned;
+    let image_end = load_base + (max_vaddr - min_vaddr);
+    let early_heap_end = early_heap_paddr + early_heap_len;
+    let memmap_end = memmap_pages.as_ptr() as u64 + (map_pages as u64) * 4096;
+    let fb_end = fb.addr + (fb.pitch as u64) * (fb.height as u64);
+
+    let mut ident_hi = *[
+        tramp_end,
+        bi_end,
+        stack_end,
+        image_end,
+        early_heap_end,
+        memmap_end,
+        fb_end,
+    ]
+    .iter()
+    .max()
+    .unwrap();
+
+    // Defensive floor (1 GiB) and APIC MMIO
     let one_gib = 1u64 << 30;
     if ident_hi < one_gib {
         ident_hi = one_gib;
     }
-
     ident_hi = ident_hi.max(0xFEC0_0000 + 0x1000).max(0xFEE0_0000 + 0x1000);
 
     slog!("[serial] ident_hi = 0x{:x}", ident_hi);
@@ -275,241 +655,35 @@ fn main() -> Status {
     slog!("[serial] building page tables …");
     let pml4_phys = build_pagetables_exec(load_base, min_vaddr, max_vaddr, ident_hi)
         .unwrap_or_else(|_| die(Status::OUT_OF_RESOURCES, &format_args!("paging failed")));
-
     slog!("[serial] pml4_phys = 0x{:x}", pml4_phys);
     log_step("paging ready");
 
-    let bi = BootInfo {
-        load_base,
-        load_size: total_size as u64,
-        load_bias: load_base - min_vaddr, // useful for PIE
-        entry: entry_va,
-        mmap_ptr: core::ptr::null(),
-        mmap_len: 0,
+    // Persist BootInfo
+    let bi_val = BootInfo {
+        rsdp_addr,
+        memory_map: memory_map_ptr,
+        memory_map_len,
+        framebuffer: fb,
+        kernel_phys_base: load_base,
+        kernel_virt_base: min_vaddr,
+        early_heap_paddr: early_heap_paddr,
+        early_heap_len: early_heap_len,
     };
+    unsafe {
+        (bi_page.as_ptr() as *mut BootInfo).write(bi_val);
+    }
 
+    // ExitBootServices and jump via low trampoline (identity mapped in both CR3s)
     serial_line("[serial] ExitBootServices …");
     let _ = unsafe { boot::exit_boot_services(None) };
 
     unsafe {
-        enter_kernel(
+        enter_kernel_via_trampoline(
+            tramp_page,
             pml4_phys,
             stack_top_sysv,
             entry_va,
             bi_page.as_ptr() as *const BootInfo,
         );
     }
-}
-#[inline(never)]
-unsafe extern "sysv64" fn enter_kernel(
-    pml4_phys: u64,
-    stack_top_sysv: u64,
-    entry_va: u64,
-    bi_ptr: *const BootInfo,
-) -> ! {
-    unsafe {
-        core::arch::asm!(
-            "cli",
-            // load CR3 = pml4_phys (in rdi)
-            "mov rax, rdi",
-            "mov cr3, rax",
-            // switch to kernel stack (rsi)
-            "mov rsp, rsi",
-            // first arg to kernel = &BootInfo (rcx -> rdi under SysV)
-            "mov rdi, rcx",
-            // jump to entry (rdx)
-            "jmp rdx",
-            options(noreturn)
-        );
-    }
-}
-
-/* ================== Logging & helpers ================== */
-#[inline(always)]
-fn log_step(msg: &str) {
-    info!("[step] {msg}");
-    boot::stall(80_000);
-}
-#[cold]
-fn die(_: Status, msg: &core::fmt::Arguments) -> ! {
-    error!("[fatal] {}", msg);
-    serial_line("[serial][FATAL] abort");
-    boot::stall(1_000_000);
-    unsafe {
-        loop {
-            asm!("hlt");
-        }
-    }
-}
-#[inline]
-fn align_up(x: u64, a: u64) -> u64 {
-    let m = a.max(1);
-    (x + m - 1) & !(m - 1)
-}
-#[inline]
-fn align_down(x: u64, a: u64) -> u64 {
-    x & !(a - 1)
-}
-fn must_alloc_page(kind: MemoryType, name: &str) -> core::ptr::NonNull<u8> {
-    boot::allocate_pages(AllocateType::AnyPages, kind, 1).unwrap_or_else(|e| {
-        die(
-            Status::OUT_OF_RESOURCES,
-            &format_args!("alloc {name} {:?}", e),
-        )
-    })
-}
-
-/* ================== Paging (EXEC+PIE path) ================== */
-const PTE_P: u64 = 1 << 0;
-const PTE_RW: u64 = 1 << 1;
-// const PTE_US: u64 = 1 << 2;
-const PTE_PS: u64 = 1 << 7; // 2 MiB large page
-const ADDR_MASK: u64 = 0x000F_FFFF_FFFF_F000;
-
-#[inline]
-fn pml4_index(va: u64) -> usize {
-    ((va >> 39) & 0x1ff) as usize
-}
-#[inline]
-fn pdpt_index(va: u64) -> usize {
-    ((va >> 30) & 0x1ff) as usize
-}
-#[inline]
-fn pd_index(va: u64) -> usize {
-    ((va >> 21) & 0x1ff) as usize
-}
-#[inline]
-fn pt_index(va: u64) -> usize {
-    ((va >> 12) & 0x1ff) as usize
-}
-
-fn alloc_zero_page(kind: MemoryType) -> Option<(*mut u64, u64)> {
-    let p = boot::allocate_pages(AllocateType::AnyPages, kind, 1).ok()?;
-    let phys = p.as_ptr() as usize as u64;
-    unsafe { core::ptr::write_bytes(p.as_ptr(), 0, 4096) };
-    Some((p.as_ptr() as *mut u64, phys))
-}
-
-unsafe fn ensure_pdpt(pml4: *mut u64, pml4i: usize) -> Result<*mut u64, ()> {
-    let e = *pml4.add(pml4i);
-    if e & PTE_P == 0 {
-        let (pdpt, phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
-        *pml4.add(pml4i) = phys | PTE_P | PTE_RW;
-        Ok(pdpt)
-    } else {
-        Ok((e & ADDR_MASK) as *mut u64)
-    }
-}
-unsafe fn ensure_pd(pdpt: *mut u64, pdpti: usize) -> Result<*mut u64, ()> {
-    let e = *pdpt.add(pdpti);
-    if e & PTE_P == 0 {
-        let (pd, phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
-        *pdpt.add(pdpti) = phys | PTE_P | PTE_RW;
-        Ok(pd)
-    } else {
-        if e & PTE_PS != 0 {
-            return Err(());
-        }
-        Ok((e & ADDR_MASK) as *mut u64)
-    }
-}
-unsafe fn ensure_pt(pd: *mut u64, pdi: usize) -> Result<*mut u64, ()> {
-    let e = *pd.add(pdi);
-    if e & PTE_P == 0 {
-        let (pt, phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
-        *pd.add(pdi) = phys | PTE_P | PTE_RW;
-        Ok(pt)
-    } else {
-        if e & PTE_PS != 0 {
-            return Err(());
-        }
-        Ok((e & ADDR_MASK) as *mut u64)
-    }
-}
-
-// Map [start_va, end_va) with 4 KiB pages, phys = va + delta
-fn map_4k_offset(pml4: *mut u64, start_va: u64, end_va: u64, delta: i128) -> Result<(), ()> {
-    let mut va = align_down(start_va, 0x1000);
-    let end = align_up(end_va, 0x1000);
-    while va < end {
-        unsafe {
-            let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
-            let pd = ensure_pd(pdpt, pdpt_index(va))?;
-            let pt = ensure_pt(pd, pd_index(va))?;
-            let phys = ((va as i128) + delta) as u64 & ADDR_MASK;
-            *pt.add(pt_index(va)) = phys | PTE_P | PTE_RW;
-        }
-        va += 0x1000;
-    }
-    Ok(())
-}
-// Identity 4K helper
-fn map_4k_ident(pml4: *mut u64, start_va: u64, end_va: u64) -> Result<(), ()> {
-    map_4k_offset(pml4, start_va, end_va, 0)
-}
-
-// Map a single 2 MiB page at VA → phys
-unsafe fn map_2mib_page(pml4: *mut u64, va: u64, phys: u64) -> Result<(), ()> {
-    let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
-    let pd = ensure_pd(pdpt, pdpt_index(va))?;
-    if *pd.add(pd_index(va)) & PTE_P == 0 {
-        *pd.add(pd_index(va)) = align_down(phys, 2 * 1024 * 1024) | PTE_P | PTE_RW | PTE_PS;
-    }
-    Ok(())
-}
-
-// Map the kernel VA range [min_vaddr..max_vaddr) to phys starting at `load_base`.
-// Identity-map 0..ident_bytes (defensive: 4K for 0..2MiB, 2MiB pages thereafter) BUT
-// skip any overlap with the kernel VA span to avoid PTE conflicts.
-fn build_pagetables_exec(
-    load_base: u64,
-    min_vaddr: u64,
-    max_vaddr: u64,
-    ident_bytes: u64,
-) -> Result<u64, ()> {
-    let (pml4, pml4_phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
-    let first_2mib_end = 2 * 1024 * 1024;
-
-    // Map kernel range by constant offset
-    let delta = load_base as i128 - min_vaddr as i128;
-
-    // Kernel low slice (<2MiB) via 4K pages
-    if min_vaddr < first_2mib_end {
-        let low_end = core::cmp::min(max_vaddr, first_2mib_end);
-        map_4k_offset(pml4, min_vaddr, low_end, delta)?;
-    }
-    // Kernel remainder via 2MiB pages
-    let mut big_va = core::cmp::max(first_2mib_end, align_up(min_vaddr, 2 * 1024 * 1024));
-    let big_end = align_up(max_vaddr, 2 * 1024 * 1024);
-    while big_va < big_end {
-        let phys = ((big_va as i128) + delta) as u64;
-        unsafe {
-            map_2mib_page(pml4, big_va, phys)?;
-        }
-        big_va += 2 * 1024 * 1024;
-    }
-
-    // Identity-map 0..2MiB except the kernel's low slice
-    let id0_start = 0u64;
-    let id0_end = first_2mib_end;
-    if id0_start < core::cmp::min(min_vaddr, id0_end) {
-        map_4k_ident(pml4, id0_start, core::cmp::min(min_vaddr, id0_end))?;
-    }
-    if max_vaddr < id0_end {
-        map_4k_ident(pml4, max_vaddr, id0_end)?;
-    }
-
-    // Identity-map [2MiB .. ident_bytes) with 2MiB pages, skipping any overlap with kernel VA span
-    let mut va = core::cmp::max(first_2mib_end, align_down(0, 2 * 1024 * 1024));
-    let ident_end = align_up(ident_bytes, 2 * 1024 * 1024);
-    while va < ident_end {
-        let overlap_kernel = !(va + 2 * 1024 * 1024 <= min_vaddr || va >= max_vaddr);
-        if !overlap_kernel {
-            unsafe {
-                map_2mib_page(pml4, va, va)?;
-            }
-        }
-        va += 2 * 1024 * 1024;
-    }
-    Ok(pml4_phys)
 }
