@@ -26,7 +26,7 @@ pub struct Task {
     pub time_slice: u32, // ticks remaining
 }
 
-const MAX_TASKS: usize = 128;
+const MAX_TASKS: usize = 192;
 const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
 const IDLE_STACK_SIZE: usize = 16 * 1024;
 
@@ -63,33 +63,35 @@ fn rq() -> &'static Mutex<RunQueue> {
         })
     })
 }
-
 pub fn init() {
-    static ONCE: Once<()> = Once::new();
+    static ONCE: spin::Once<()> = spin::Once::new();
     ONCE.call_once(|| {
         let mut rq = rq().lock();
 
-        // prepare idle stack top and a fake return frame for the kthread trampoline
+        // --- build a proper stack for idle (slot 0) ---
         let base = unsafe { core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8 };
-        let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
+        let len = IDLE_STACK_SIZE;
+        let top = ((base as usize + len) & !0xF) as u64;
 
+        // layout for kthread_trampoline: [arg][entry]
         let init_rsp = (top - 16) as *mut u64;
         unsafe {
-            // trampoline pops arg first, then entry
             core::ptr::write(init_rsp.add(0), 0u64); // arg
-            core::ptr::write(init_rsp.add(1), idle_main as u64); // entry
+            core::ptr::write(init_rsp.add(1), idle_main as usize as u64); // entry
         }
+
+        let idle_ctx = CpuContext {
+            rip: kthread_trampoline as u64,
+            rsp: top,
+            ..CpuContext::default()
+        };
 
         rq.tasks[0] = Some(Task {
             id: rq.next_id,
             state: TaskState::Running,
-            ctx: CpuContext {
-                rip: kthread_trampoline as u64,
-                rsp: top,
-                ..CpuContext::default()
-            },
+            ctx: idle_ctx,
             kstack_top: top,
-            time_slice: u32::MAX, // never preempt
+            time_slice: u32::MAX, // never preempt idle
         });
         rq.next_id += 1;
         rq.current = Some(0);
@@ -147,61 +149,67 @@ pub fn tick() {
     });
 }
 
+pub fn yield_now() {
+    let mut rq = rq().lock();
+    let cur = rq.current.expect("no current");
+
+    let Some(next_idx) = pick_next(&rq, cur) else {
+        // no runnable task (shouldn’t happen because idle exists)
+        return;
+    };
+
+    if next_idx == cur {
+        // nothing to do; keep running current
+        return;
+    }
+
+    // switch states/slices
+    rq.tasks[cur].as_mut().unwrap().state = TaskState::Ready;
+    rq.tasks[cur].as_mut().unwrap().time_slice = DEFAULT_SLICE;
+    rq.tasks[next_idx].as_mut().unwrap().state = TaskState::Running;
+
+    // take context pointers while lock is held
+    let (prev_ctx, next_ctx) = {
+        let prev = &mut rq.tasks[cur].as_mut().unwrap().ctx as *mut _;
+        let next = &rq.tasks[next_idx].as_ref().unwrap().ctx as *const _;
+        (prev, next)
+    };
+    rq.current = Some(next_idx);
+    rq.need_resched = false;
+    drop(rq);
+
+    unsafe {
+        crate::arch::x86_64::context::switch(prev_ctx, next_ctx);
+    }
+}
+
 fn pick_next(rq: &RunQueue, cur: usize) -> Option<usize> {
     let n = rq.tasks.len();
-    // scan all others first
+
+    // Prefer non-idle tasks, skipping current first
     for off in 1..n {
         let i = (cur + off) % n;
+        if i == 0 {
+            continue;
+        } // skip idle
         if let Some(t) = &rq.tasks[i] {
             if matches!(t.state, TaskState::Ready) {
                 return Some(i);
             }
         }
     }
-    // no one else? if idle exists, use it
+
+    // Fall back to idle if nothing else is runnable
     if let Some(Some(t0)) = rq.tasks.get(0) {
         if matches!(t0.state, TaskState::Ready | TaskState::Running) {
             return Some(0);
         }
     }
+
     None
-}
-pub fn yield_now() {
-    x86_64::instructions::interrupts::without_interrupts(|| {
-        // pick and prepare while holding the lock
-        let (prev_ctx, next_ctx_opt) = {
-            let mut rq = rq().lock();
-            let cur = match rq.current {
-                Some(i) => i,
-                None => return,
-            };
-            let next = pick_next(&rq, cur);
-            if let Some(next_idx) = next {
-                rq.tasks[cur].as_mut().unwrap().state = TaskState::Ready;
-                rq.tasks[cur].as_mut().unwrap().time_slice = DEFAULT_SLICE;
-                rq.tasks[next_idx].as_mut().unwrap().state = TaskState::Running;
-
-                let prev = &mut rq.tasks[cur].as_mut().unwrap().ctx as *mut _;
-                let nextp = &rq.tasks[next_idx].as_ref().unwrap().ctx as *const _;
-                rq.current = Some(next_idx);
-                rq.need_resched = false;
-                (prev, Some(nextp))
-            } else {
-                // nothing to run
-                (core::ptr::null_mut(), None)
-            }
-        };
-
-        if let Some(next_ctx) = next_ctx_opt {
-            unsafe {
-                crate::arch::x86_64::context::switch(prev_ctx, next_ctx);
-            }
-        }
-    });
 }
 
 pub fn exit_current() -> ! {
-    // We'll capture these, then release the lock, then switch.
     let (prev_ctx, next_ctx);
 
     {
@@ -210,28 +218,35 @@ pub fn exit_current() -> ! {
         q.tasks[cur].as_mut().unwrap().state = TaskState::Dead;
 
         let Some(next_idx) = pick_next(&q, cur) else {
-            // No runnable task; park this CPU forever.
-            drop(q); // explicit or just fall out of scope
+            drop(q);
             loop {
                 x86_64::instructions::hlt();
             }
         };
 
+        if next_idx == cur {
+            // if we somehow picked ourselves and we’re Dead, park
+            drop(q);
+            loop {
+                x86_64::instructions::hlt();
+            }
+        }
+
         q.tasks[next_idx].as_mut().unwrap().state = TaskState::Running;
         prev_ctx = &mut q.tasks[cur].as_mut().unwrap().ctx as *mut _;
         next_ctx = &q.tasks[next_idx].as_ref().unwrap().ctx as *const _;
         q.current = Some(next_idx);
-        // `q` is dropped here at end of this block (exactly once).
+        // drop lock here
     }
 
     unsafe {
         crate::arch::x86_64::context::switch(prev_ctx, next_ctx);
     }
-    // We should never return here, but if we do, park:
     loop {
         x86_64::instructions::hlt();
     }
 }
+
 use core::mem::size_of;
 
 pub fn ctx_layout_sanity() {
@@ -279,12 +294,11 @@ pub fn ctx_layout_sanity() {
     }
 }
 
-#[inline]
 fn with_rq_locked<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RunQueue) -> R,
 {
-    interrupts::without_interrupts(|| {
+    x86_64::instructions::interrupts::without_interrupts(|| {
         let mut guard = rq().lock();
         f(&mut guard)
     })
