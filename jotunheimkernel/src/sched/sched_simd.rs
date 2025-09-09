@@ -20,17 +20,26 @@ pub struct SimdArea {
     ptr: NonNull<u8>,
     len: usize,
 }
+#[inline]
+const fn align_up(x: usize, a: usize) -> usize {
+    debug_assert!(a.is_power_of_two());
+    (x + (a - 1)) & !(a - 1)
+}
 
 impl SimdArea {
     pub fn alloc() -> Option<Self> {
         // use your kernel page allocator; must be 64B aligned and zeroed once
-        let len = crate::arch::x86_64::sched_consts::align_up(get_xsave_size() as usize, 64);
-        let pages = (len + 4095) / 4096;
-        let base = crate::mem::alloc_pages(pages)?; // already mapped RW
+        let len = align_up(get_xsave_size() as usize, 64);
+        let base;
+        let pages;
+        unsafe {
+            pages = (len + 4095) / 4096;
+            base = crate::mem::alloc_pages(pages); // already mapped RW
+            core::ptr::write_bytes(base?, 0, pages * 4096);
+        }
         // Zero first time to ensure INIT state
-        core::ptr::write_bytes(base, 0, pages * 4096);
         Some(Self {
-            ptr: NonNull::new(base)?,
+            ptr: NonNull::new(base?)?,
             len,
         })
     }
@@ -68,11 +77,6 @@ pub unsafe fn xrstor(save_area: *const u8) {
     unsafe {
         asm!("xrstor [{0}]", in(reg) save_area, in("eax") eax, in("edx") edx, options(nostack));
     }
-}
-
-#[inline]
-fn align_up(x: usize, a: usize) -> usize {
-    (x + (a - 1)) & !(a - 1)
 }
 
 unsafe impl Send for SimdArea {}
