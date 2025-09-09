@@ -1,6 +1,10 @@
 [bits 64]
 default rel
-section .text; rdi = &prev.ctx, rsi = &next.ctx
+section .text
+global __ctx_switch
+
+; void __ctx_switch(struct CpuContext* prev, const struct CpuContext* next)
+; rdi = prev, rsi = next
 __ctx_switch:
     ; save callee-saved
     mov [rdi + 0x00], r15
@@ -21,6 +25,9 @@ __ctx_switch:
     mov rbx, [rsi + 0x20]
     mov rbp, [rsi + 0x28]
     mov rsp, [rsi + 0x30]        ; restore rsp
+    mov rax, [rsi + 0x38]
+    
+    sti
     jmp qword [rsi + 0x38]
 .resume:
     ret
