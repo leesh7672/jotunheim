@@ -6,6 +6,7 @@ use spin::{Mutex, Once};
 
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
+use crate::println;
 use x86_64::instructions::{hlt, interrupts};
 pub type TaskId = u64;
 
