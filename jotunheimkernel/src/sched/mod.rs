@@ -4,6 +4,7 @@ use spin::{Mutex, Once};
 
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
+use crate::arch::x86_64::simd;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TaskState {
@@ -147,50 +148,63 @@ pub fn tick() {
         }
     });
 }
-
 pub fn yield_now() {
-    let mut rq = rq().lock();
-    let cur = rq.current.expect("no current");
-
-    let Some(next_idx) = pick_next(&rq, cur) else {
-        // no runnable task (shouldn’t happen because idle exists)
+    // 1) lock & pick
+    let mut rqg = rq().lock();
+    let cur = rqg.current.expect("no current");
+    let Some(next_idx) = pick_next(&rqg, cur) else {
         return;
     };
-
     if next_idx == cur {
-        // nothing to do; keep running current
         return;
     }
 
-    // switch states/slices
-    rq.tasks[cur].as_mut().unwrap().state = TaskState::Ready;
-    rq.tasks[cur].as_mut().unwrap().time_slice = DEFAULT_SLICE;
-    rq.tasks[next_idx].as_mut().unwrap().state = TaskState::Running;
-
-    // take context pointers while lock is held
-    let (prev, next) = {
-        let prev = &mut rq.tasks[cur].as_mut().unwrap();
-        let next = &rq.tasks[next_idx].as_ref().unwrap();
-        (prev, next)
-    };
-
-    let (prev_ctx, next_ctx) = {
-        let prev_ctx: *mut CpuContext = &mut prev.ctx as *mut _;
-        let next_ctx: *const CpuContext = &next.ctx as *const _;
-        (prev_ctx, next_ctx)
-    };
-    rq.current = Some(next_idx);
-    rq.need_resched = false;
-    drop(rq);
-
-    if let Some(ref simd) = prev.simd {
-        sched_simd::xsave(simd.as_mut_ptr());
+    // 2) update states/slices (short, non-overlapping borrows)
+    {
+        let t = rqg.tasks[cur].as_mut().unwrap();
+        t.state = TaskState::Ready;
+        t.time_slice = DEFAULT_SLICE;
+    }
+    {
+        let t = rqg.tasks[next_idx].as_mut().unwrap();
+        t.state = TaskState::Running;
     }
 
-    if let Some(ref simd) = next.simd {
-        sched_simd::xrstor(simd.as_mut_ptr());
+    // 3) capture raw pointers WITHOUT overlapping borrows
+    let (prev_ctx, prev_simd_ptr) = {
+        let prev = rqg.tasks[cur].as_mut().unwrap();
+        (
+            &mut prev.ctx as *mut CpuContext,
+            prev.simd.as_ref().map(|s| s.as_mut_ptr()),
+        )
+    };
+    let (next_ctx, next_simd_ptr) = {
+        let next = rqg.tasks[next_idx].as_mut().unwrap();
+        (
+            &next.ctx as *const CpuContext,
+            next.simd.as_ref().map(|s| s.as_mut_ptr()),
+        )
+    };
+
+    // 4) flip bookkeeping, then drop the lock
+    rqg.current = Some(next_idx);
+    rqg.need_resched = false;
+    drop(rqg);
+
+    // 5) save → switch → restore (SIMD around the GPR switch)
+    if let Some(area) = prev_simd_ptr {
+        unsafe {
+            simd::xsave_all(area);
+        }
     }
-    context::switch(prev_ctx, next_ctx);
+    unsafe {
+        context::switch(prev_ctx, next_ctx);
+    }
+    if let Some(area) = next_simd_ptr {
+        unsafe {
+            simd::xrstor_all(area);
+        }
+    }
 }
 
 fn pick_next(rq: &RunQueue, cur: usize) -> Option<usize> {

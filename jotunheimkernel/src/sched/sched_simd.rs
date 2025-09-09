@@ -62,7 +62,7 @@ impl Drop for SimdArea {
 
 // XSAVE/XRSTOR wrappers
 #[inline]
-pub unsafe fn xsave(save_area: *mut u8) {
+pub fn xsave(save_area: *mut u8) {
     let eax: u32 = u32::MAX;
     let edx: u32 = u32::MAX;
     unsafe {
@@ -70,7 +70,7 @@ pub unsafe fn xsave(save_area: *mut u8) {
     }
 }
 #[inline]
-pub unsafe fn xrstor(save_area: *const u8) {
+pub fn xrstor(save_area: *const u8) {
     let eax: u32 = u32::MAX;
     let edx: u32 = u32::MAX;
     unsafe {
