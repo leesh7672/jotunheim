@@ -2,7 +2,6 @@ use spin::{Mutex, Once};
 
 use crate::arch::x86_64::context::CpuContext;
 
-use x86_64::instructions::interrupts;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TaskState {
