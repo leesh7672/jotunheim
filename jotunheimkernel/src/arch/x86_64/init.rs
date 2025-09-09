@@ -11,9 +11,8 @@ fn log_cr3(tag: &str) {
 pub fn init_arch() {
     gdt::init();
     idt::init();
-    // Do not touch IOAPIC/LAPIC here—only map PTEs.
     let _ = mmio_map::early_map_mmio_for_apics();
-    // Now it should be safe to touch APICs
+    
     apic::init();
     unsafe {
         ioapic::mask_all();
