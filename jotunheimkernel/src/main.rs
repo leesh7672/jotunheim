@@ -28,8 +28,6 @@ use x86_64::instructions::interrupts;
 
 use crate::arch::x86_64::{apic, init, serial};
 
-static mut DEMO_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
-static mut DEMO_STACK2: [u8; 16 * 1024] = [0; 16 * 1024];
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start() -> ! {
@@ -42,12 +40,12 @@ pub extern "C" fn _start() -> ! {
     init::init_arch();
     apic::snapshot_debug();
 
-    let ptr = core::ptr::addr_of_mut!(DEMO_STACK) as *mut u8;
-    const DEMO_STACK_LEN: usize = 16 * 1024;
-    sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
-
-    let ptr2 = core::ptr::addr_of_mut!(DEMO_STACK2) as *mut u8;
-    sched::spawn_kthread(kthread_demo2, 0, ptr2, DEMO_STACK_LEN);
+    for i in 1..10 {
+        let mut stack: [u8; 16 * 1024] = [0; 16 * 1024];
+        let ptr = core::ptr::addr_of_mut!(stack) as *mut u8;
+        const DEMO_STACK_LEN: usize = 16 * 1024;
+        sched::spawn_kthread(kthread_demo, i, ptr, DEMO_STACK_LEN);
+    }
 
     interrupts::enable();
 
@@ -55,16 +53,9 @@ pub extern "C" fn _start() -> ! {
         sched::yield_now();
     }
 }
-extern "C" fn kthread_demo(_arg: usize) -> ! {
+extern "C" fn kthread_demo(arg: usize) -> ! {
     loop {
-        println!("[Threading 1]");
-        sched::yield_now();
-    }
-}
-extern "C" fn kthread_demo2(_arg: usize) -> ! {
-    loop {
-        println!("[Threading 2]");
-        sched::yield_now();
+        println!("[Threading {arg}]");
     }
 }
 

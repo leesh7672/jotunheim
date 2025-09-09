@@ -239,53 +239,13 @@ pub fn exit_current() -> ! {
     }
 }
 
-use core::mem::size_of;
-
-pub fn ctx_layout_sanity() {
-    // size
-    crate::println!("[CTX] size = {:#x}", size_of::<CpuContext>());
-
-    // offsets
-    let base = 0usize;
-    let sample = CpuContext::default();
-    let p: *const CpuContext = &sample;
-
-    unsafe {
-        crate::println!(
-            "[CTX] off r15={:#x}",
-            (&(*p).r15 as *const _ as usize) - (p as usize)
-        );
-        crate::println!(
-            "[CTX] off r14={:#x}",
-            (&(*p).r14 as *const _ as usize) - (p as usize)
-        );
-        crate::println!(
-            "[CTX] off r13={:#x}",
-            (&(*p).r13 as *const _ as usize) - (p as usize)
-        );
-        crate::println!(
-            "[CTX] off r12={:#x}",
-            (&(*p).r12 as *const _ as usize) - (p as usize)
-        );
-        crate::println!(
-            "[CTX] off rbx={:#x}",
-            (&(*p).rbx as *const _ as usize) - (p as usize)
-        );
-        crate::println!(
-            "[CTX] off rbp={:#x}",
-            (&(*p).rbp as *const _ as usize) - (p as usize)
-        );
-        crate::println!(
-            "[CTX] off rsp={:#x}",
-            (&(*p).rsp as *const _ as usize) - (p as usize)
-        );
-        crate::println!(
-            "[CTX] off rip={:#x}",
-            (&(*p).rip as *const _ as usize) - (p as usize)
-        );
-    }
+pub fn should_preempt_now() -> bool {
+    with_rq_locked(|rq| rq.need_resched)
 }
-
+#[unsafe(no_mangle)]
+pub extern "C" fn preempt_trampoline() {
+    yield_now();
+}
 fn with_rq_locked<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RunQueue) -> R,

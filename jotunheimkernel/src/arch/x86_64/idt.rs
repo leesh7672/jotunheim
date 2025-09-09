@@ -184,7 +184,12 @@ pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) {
+pub extern "C" fn isr_timer_rust(_vec: u64, _err: u64) -> u64 {
     sched::tick();
     apic::timer_isr_eoi_and_rearm_deadline();
+    if sched::should_preempt_now() {
+        sched::preempt_trampoline as u64
+    } else {
+        0
+    }
 }

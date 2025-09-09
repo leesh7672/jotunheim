@@ -141,10 +141,15 @@ isr_ud_stub:
 ; Must return with EOI handled in Rust or after the call.
 isr_timer_stub:
     PUSH_VOLATILES
-    mov rdi, 0x20              ; vec = TIMER_VECTOR
-    mov rsi, 0                 ; err = 0
+    mov     rdi, 0x20            ; vec
+    mov     rsi, 0               ; err
     ALIGN_BEFORE_CALL
-    call isr_timer_rust        ; returns
+    call    isr_timer_rust       ; -> RAX = 0 (no preempt) or trampoline addr
     UNALIGN_AFTER_CALL
+
+    test    rax, rax
+    jz      .no_preempt
+    mov     [rsp + 9*8], rax     ; patch the return RIP to preempt_trampoline
+.no_preempt:
     POP_VOLATILES
     iretq
