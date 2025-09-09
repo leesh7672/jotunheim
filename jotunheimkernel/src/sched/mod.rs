@@ -5,7 +5,6 @@ use spin::{Mutex, Once};
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
 use crate::arch::x86_64::simd;
-use crate::println;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TaskState {

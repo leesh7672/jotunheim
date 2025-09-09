@@ -6,7 +6,7 @@ use crate::println;
 
 use x86_64::VirtAddr;
 use x86_64::structures::paging::{
-    Mapper, Page, PageTableFlags as F, Size2MiB, Size4KiB, mapper::MapToError,
+    Mapper, Page, PageTableFlags as F, Size2MiB,
 };
 
 fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {

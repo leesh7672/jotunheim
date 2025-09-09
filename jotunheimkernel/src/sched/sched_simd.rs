@@ -1,5 +1,4 @@
 // src/sched/simd.rs
-use core::arch::asm;
 use core::ptr::NonNull;
 
 static mut XSAVE_SIZE: u32 = 512; // default FXSAVE size; will be bumped by init

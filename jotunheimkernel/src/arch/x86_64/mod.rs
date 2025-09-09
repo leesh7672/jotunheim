@@ -8,9 +8,8 @@ pub mod serial;
 pub mod simd;
 pub mod tsc;
 
-use crate::{println, sched};
+use crate::sched;
 use x86_64::instructions;
-use x86_64::registers::control::Cr3;
 
 pub fn init() {
     simd::enable_sse_avx();
