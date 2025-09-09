@@ -11,7 +11,5 @@ extern sched_exit_current_trampoline
 kthread_trampoline:
     pop rdi            ; arg
     pop rax            ; entry fn ptr
-    sub rsp, 8         ; make RSP%16 == 8 before CALL (SysV requirement)
     call rax           ; entry(rdi) -> !
-    add rsp, 8         ; (won’t run if entry never returns)
     jmp  sched_exit_current_trampoline

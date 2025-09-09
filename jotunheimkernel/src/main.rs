@@ -47,13 +47,11 @@ pub extern "C" fn _start() -> ! {
     sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
 
     interrupts::enable();
-    sched::yield_now();
 
     loop {
-        x86_64::instructions::hlt();
+        sched::yield_now();
     }
 }
-
 extern "C" fn kthread_demo(_arg: usize) -> ! {
     loop {
         println!("[Threading]");
