@@ -81,7 +81,7 @@ pub fn enable_sse_avx() -> (u64, usize) {
     // --- Control registers: enable x87/SSE and (optionally) XSAVE ---
     let mut cr0 = rdcr0();
     cr0 &= !(CR0_EM | CR0_TS); // enable FPU, clear TS so FP/SSE don’t #NM
-    cr0 |= (CR0_MP | CR0_NE); // monitor coproc + native exceptions
+    cr0 |= CR0_MP | CR0_NE; // monitor coproc + native exceptions
     wrcr0(cr0);
 
     let mut cr4 = rdcr4();
@@ -157,20 +157,22 @@ pub fn save(area: *mut u8) {
 }
 
 #[inline(always)]
-pub unsafe fn restore(area: *const u8) {
-    let c = caps::caps();
-    if c.has_xsave && c.has_osxsave && (caps::simd_ready()) {
-        let mask_lo = (c.xcr0 & 0xFFFF_FFFF) as u32;
-        let mask_hi = (c.xcr0 >> 32) as u32;
-        {
-            core::arch::asm!("xrstor [{buf}]", buf = in(reg) area,
+pub fn restore(area: *const u8) {
+    unsafe {
+        let c = caps::caps();
+        if c.has_xsave && c.has_osxsave && (caps::simd_ready()) {
+            let mask_lo = (c.xcr0 & 0xFFFF_FFFF) as u32;
+            let mask_hi = (c.xcr0 >> 32) as u32;
+            {
+                core::arch::asm!("xrstor [{buf}]", buf = in(reg) area,
                          in("eax") mask_lo, in("edx") mask_hi,
                          options(nostack, preserves_flags));
-        }
-    } else {
-        {
-            core::arch::asm!("fxrstor [{buf}]", buf = in(reg) area,
+            }
+        } else {
+            {
+                core::arch::asm!("fxrstor [{buf}]", buf = in(reg) area,
                          options(nostack, preserves_flags));
+            }
         }
     }
 }

@@ -66,6 +66,7 @@ const IST_PF: u8 = 2; // uses interrupt_stack_table[1]
 const IST_TIMER: u8 = 3;
 const IST_GP: u8 = 4;
 const IST_UD: u8 = 5;
+
 fn set_gate_raw(
     idt_base: *mut IdtEntry,
     idx: usize,
@@ -95,23 +96,27 @@ fn set_gate(idx: usize, handler: unsafe extern "C" fn(), ist: u8, dpl: u8) {
     }
 }
 
+fn dump_gate(vec: u8) {
+    unsafe {
+        let e = &(*(core::ptr::addr_of!(IDT.0)))[vec as usize];
+        let off =
+            (e.offset_low as u64) | ((e.offset_mid as u64) << 16) | ((e.offset_high as u64) << 32);
+        println!(
+            "[IDT] vec={:3} off={:#018x} sel={:#06x} ist={} attr={:#04x}",
+            vec,
+            off,
+            e.selector,
+            e.ist & 0x7,
+            e.type_attr
+        );
+    }
+}
+
 unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
     let idtr = Idtr {
         limit: (size_of::<IdtEntry>() * 256 - 1) as u16,
         base: ptr as u64,
     };
-    unsafe {
-        let cs_now = CS::get_reg().0;
-        let timer_gate =
-            core::ptr::read((addr_of!(IDT.0) as *const IdtEntry).add(apic::TIMER_VECTOR as usize));
-        println!(
-            "[IDT] CS now={:#06x}, timer.selector={:#06x}, type_attr={:#04x}, ist={}",
-            cs_now,
-            timer_gate.selector,
-            timer_gate.type_attr,
-            timer_gate.ist & 0x7
-        );
-    }
     unsafe {
         core::arch::asm!(
             "lidt [{0}]",
@@ -136,6 +141,13 @@ pub fn init() {
         set_gate(0xFF as usize, isr_spurious_stub, 0, 0);
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
         load_idt_ptr(idt_ptr);
+
+        dump_gate(6);
+        dump_gate(13);
+        dump_gate(14);
+        dump_gate(8);
+        dump_gate(apic::TIMER_VECTOR);
+        dump_gate(0xFF);
     }
 }
 
@@ -166,7 +178,10 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
     let cr2 = Cr2::read().expect("CR2 read failed").as_u64();
     crate::arch::x86_64::mmio_map::log_va_mapping("PF-cr2", cr2, 0);
 
-    println!("[#PF] err={:#018x} cr2={:#016x}", err, cr2);
+    println!(
+        "[#PF] err={:#018x} cr2={:#016x} rip={:#016x}",
+        err, cr2, rip
+    );
     loop {
         x86_64::instructions::hlt();
     }
@@ -180,27 +195,30 @@ pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
     }
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64) -> ! {
+pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp:u64) -> ! {
     crate::println!("[#UD] rip={:#018x}", rip);
+    let sp = rsp as *const u64;
+    unsafe {
+        crate::println!(
+            "[#UD] rip={:#x} rsp[0..5]={:x} {:x} {:x} {:x} {:x}",
+            rip,
+            *sp,
+            *sp.add(1),
+            *sp.add(2),
+            *sp.add(3),
+            *sp.add(4)
+        );
+    }
     crate::arch::x86_64::mmio_map::log_va_mapping("UD-rip", rip, 0);
     loop {
         x86_64::instructions::hlt();
     }
 }
-#[repr(C)]
-pub struct IretFrame {
-    pub rip: u64,
-    pub cs: u64,
-    pub rflags: u64,
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust() {
     sched::tick();
     apic::timer_isr_eoi_and_rearm_deadline();
     if crate::sched::should_preempt_now() {
-        unsafe {
-            sched::preempt_trampoline();
-        }
+        sched::preempt_trampoline();
     }
 }

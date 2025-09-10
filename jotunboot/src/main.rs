@@ -4,6 +4,8 @@
 
 extern crate alloc;
 
+mod simd;
+
 use alloc::vec::Vec;
 use core::{arch::asm, ptr};
 
@@ -420,6 +422,7 @@ fn main() -> Status {
             }
         }
     }
+    simd::enable_sse_avx_boot();
     log_step("loader start.");
 
     // ---- FS & read kernel ----

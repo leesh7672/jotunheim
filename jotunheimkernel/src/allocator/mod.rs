@@ -22,16 +22,10 @@ pub fn early_init_from_bootinfo(boot: &BootInfo) {
     crate::println!("[alloc] early pool = {:#x}..{:#x}", start, end);
 }
 
-// TODO: replace with real selection from boot.memory_map
 fn choose_early_pool_from_bootinfo(_boot: &BootInfo) -> (u64, u64) {
     let start = 0x0030_0000u64; // 48 MiB
     let end = 0x0038_0000u64; // 56 MiB
     (start, end)
-}
-
-#[inline]
-pub fn alloc_frame() -> Option<PhysFrame> {
-    alloc_frames(1)
 }
 
 pub fn alloc_frames(n: usize) -> Option<PhysFrame> {
