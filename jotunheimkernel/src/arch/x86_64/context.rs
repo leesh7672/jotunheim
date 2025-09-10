@@ -1,6 +1,7 @@
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct CpuContext {
+    // Callee-saved + full GP set, exactly matching asm offsets below
     pub r15: u64,    // 0x00
     pub r14: u64,    // 0x08
     pub r13: u64,    // 0x10
@@ -20,12 +21,13 @@ pub struct CpuContext {
     pub rip: u64,    // 0x80
     pub rflags: u64, // 0x88
 }
+
 unsafe extern "C" {
     fn __ctx_switch(prev: *mut CpuContext, next: *const CpuContext);
 }
 
+#[inline(always)]
 pub fn switch(prev: *mut CpuContext, next: *const CpuContext) {
-    crate::println!("[SWITCH] rip: {:#x}", unsafe { (*next).rip });
     unsafe {
         __ctx_switch(prev, next);
     }

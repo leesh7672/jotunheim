@@ -7,12 +7,12 @@ extern sched_exit_current_trampoline
 ; Stack on entry (top -> high):
 ;   [rsp + 0x00] = arg (usize)
 ;   [rsp + 0x08] = entry (extern "C" fn(usize) -> !)
-; --- kthread_trampoline (fix: enforce 16B ABI alignment before call) ---
+
 kthread_trampoline:
+    cld
     pop rdi            ; arg
     pop rax            ; entry fn ptr
-    sub rsp, 8         ; make RSP%16 == 8 before CALL (SysV requirement)
-    xor rbp, rbp
+    sub rsp, 8         ; ensure RSP%16 == 8 before CALL (so callee sees 16)
     call rax           ; entry(rdi) -> !
-    add rsp, 8         ; (won’t run if entry never returns)
+    add rsp, 8         ; (won’t run if entry is noreturn)
     jmp  sched_exit_current_trampoline

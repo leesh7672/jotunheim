@@ -166,7 +166,6 @@ pub fn spawn_kthread(
     let ctx = CpuContext {
         rip: kthread_trampoline as u64,
         rsp: init_rsp as u64,
-        rflags: 0x202,
         ..CpuContext::default()
     };
 
