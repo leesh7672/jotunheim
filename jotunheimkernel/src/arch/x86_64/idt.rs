@@ -4,7 +4,8 @@ use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::arch::x86_64::{apic, gdt};
+use crate::arch::x86_64::context::CpuContext;
+use crate::arch::x86_64::{apic, context, gdt};
 use crate::{println, sched};
 
 #[repr(C)]
@@ -222,11 +223,104 @@ pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp: u64) -> ! {
         x86_64::instructions::hlt();
     }
 }
+
+#[repr(C)]
+pub struct PreemptPack {
+    pub prev_ctx: *mut CpuContext,
+    pub next_ctx: *const CpuContext,
+    pub prev_simd: *mut u8, // nullable
+    pub next_simd: *mut u8, // nullable
+}
+
+static mut PREEMPT_PACK: PreemptPack = PreemptPack {
+    prev_ctx: core::ptr::null_mut(),
+    next_ctx: core::ptr::null(),
+    prev_simd: core::ptr::null_mut(),
+    next_simd: core::ptr::null_mut(),
+};
+
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust() {
-    sched::tick();
-    apic::timer_isr_eoi_and_rearm_deadline();
-    if crate::sched::should_preempt_now() {
-        sched::preempt_trampoline();
+pub extern "C" fn isr_timer_rust() -> *const PreemptPack {
+    sched::tick(); // decrement slice, set need_resched on expiry
+    crate::arch::x86_64::apic::timer_isr_eoi_and_rearm_deadline();
+
+    // If you may deadlock on the runqueue mutex in ISR, use try_lock() in tick/decision
+    // or otherwise ensure interrupts are masked while the lock is held in thread ctx.
+
+    // Build the pack if we should preempt
+    if !crate::sched::should_preempt_now() {
+        return core::ptr::null();
+    } else {
+        // Collect contexts like in yield_now(), but don't switch.
+        let (prev_ctx, next_ctx, prev_simd, next_simd) = {
+            let mut g = crate::sched::rq().lock();
+            let rq = &mut *g;
+            let cur = rq.current.unwrap();
+
+            let Some(nxt) = crate::sched::pick_next(rq, cur) else {
+                rq.need_resched = false;
+                return core::ptr::null();
+            };
+            if nxt == cur {
+                rq.need_resched = false;
+                return core::ptr::null();
+            }
+
+            {
+                let t = rq.tasks[cur].as_mut().unwrap();
+                if t.time_slice != u32::MAX {
+                    t.state = crate::sched::TaskState::Ready;
+                    t.time_slice = crate::sched::DEFAULT_SLICE;
+                }
+            }
+            rq.tasks[nxt].as_mut().unwrap().state = crate::sched::TaskState::Running;
+
+            let (pc, ps) = {
+                let prev = rq.tasks[cur].as_mut().unwrap();
+                (
+                    &mut prev.ctx as *mut CpuContext,
+                    prev.simd.as_ref().map(|s| s.as_mut_ptr()),
+                )
+            };
+            let (nc, ns) = {
+                let next = rq.tasks[nxt].as_ref().unwrap();
+                (
+                    &next.ctx as *const CpuContext,
+                    next.simd.as_ref().map(|s| s.as_mut_ptr()),
+                )
+            };
+
+            rq.current = Some(nxt);
+            rq.need_resched = false;
+
+            (
+                pc,
+                nc,
+                ps.unwrap_or(core::ptr::null_mut()),
+                ns.unwrap_or(core::ptr::null_mut()),
+            )
+        };
+
+        unsafe {
+            PREEMPT_PACK.prev_ctx = prev_ctx;
+            PREEMPT_PACK.next_ctx = next_ctx;
+            PREEMPT_PACK.prev_simd = prev_simd;
+            PREEMPT_PACK.next_simd = next_simd;
+            &raw const PREEMPT_PACK
+        }
+    }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn preempt_switch(pack: *const PreemptPack) -> ! {
+    unsafe {
+        let p = &*pack;
+        if !p.prev_simd.is_null() {
+            crate::arch::x86_64::simd::save(p.prev_simd);
+        }
+        context::switch(p.prev_ctx, p.next_ctx);
+        if !p.next_simd.is_null() {
+            crate::arch::x86_64::simd::restore(p.next_simd);
+        }
+        core::hint::unreachable_unchecked();
     }
 }

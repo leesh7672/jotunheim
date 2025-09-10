@@ -12,7 +12,7 @@ mod arch {
 
 use crate::bootinfo::BootInfo;
 use core::panic::PanicInfo;
-use x86_64::instructions::interrupts;
+use x86_64::instructions::{hlt, interrupts};
 
 use crate::arch::x86_64::{apic, serial};
 
@@ -36,9 +36,10 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
     sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
 
     interrupts::enable();
+    sched::yield_now();
 
     loop {
-        sched::yield_now();
+        hlt();
     }
 }
 

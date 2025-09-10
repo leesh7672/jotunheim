@@ -32,6 +32,8 @@ extern isr_ud_rust             ; fn(u64, u64, u64, u64) -> !
 extern isr_timer_rust          ; fn() -> ()
 extern isr_spurious_rust       ; fn() -> ()
 
+extern preempt_switch
+
 ; ---------------- Common helpers ----------------
 ; We save caller-saved registers per SysV: rax, rcx, rdx, rsi, rdi, r8..r11
 %macro PUSH_VOLATILES 0
@@ -160,7 +162,16 @@ isr_ud_stub:
 ; ============================================================================ ;
 isr_timer_stub:
     PUSH_VOLATILES
-    CALL_ALIGN_NOERR isr_timer_rust
+    sub     rsp, 8
+    call    isr_timer_rust
+    add     rsp, 8
+
+    test    rax, rax
+    jz      .no_preempt
+
+    mov     rdi, rax                ; arg0 = pack*
+    jmp     preempt_switch ; non-returning in forward path
+.no_preempt:
     POP_VOLATILES
     iretq
 

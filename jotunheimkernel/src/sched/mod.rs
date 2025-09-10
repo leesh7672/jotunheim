@@ -43,17 +43,16 @@ pub struct Task {
 }
 
 const MAX_TASKS: usize = 192;
-const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
+pub const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
 const IDLE_STACK_SIZE: usize = 16 * 1024;
 
 /* ----------------------------- Runqueue container ----------------------------- */
 
 pub struct RunQueue {
-    // Static-backed slice to avoid early-boot heap allocations.
-    tasks: &'static mut [Option<Task>],
-    current: Option<usize>,
-    next_id: TaskId,
-    need_resched: bool,
+    pub tasks: &'static mut [Option<Task>],
+    pub current: Option<usize>,
+    pub next_id: TaskId,
+    pub need_resched: bool,
 }
 
 /* ---------------------- Static storage (no allocator) ------------------------- */
@@ -66,7 +65,6 @@ unsafe impl Sync for TaskBuf {}
 
 static RQ_TASKS_BUF: TaskBuf = TaskBuf(UnsafeCell::new(MaybeUninit::uninit()));
 
-// One-time global runqueue (guarded by a Mutex).
 static RQ_CELL: Once<Mutex<RunQueue>> = Once::new();
 
 static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
@@ -93,8 +91,7 @@ fn tasks_slice_init() -> &'static mut [Option<Task>] {
     }
 }
 
-#[inline]
-fn rq() -> &'static Mutex<RunQueue> {
+pub fn rq() -> &'static Mutex<RunQueue> {
     RQ_CELL.call_once(|| {
         let tasks = tasks_slice_init();
         Mutex::new(RunQueue {
@@ -214,11 +211,6 @@ pub fn should_preempt_now() -> bool {
     with_rq_locked(|rq| rq.need_resched)
 }
 
-#[unsafe(no_mangle)]
-pub fn preempt_trampoline() {
-    yield_now();
-}
-
 /* ------------------------------ Core switching ------------------------------- */
 
 pub fn yield_now() {
@@ -282,7 +274,7 @@ pub fn yield_now() {
     }
 }
 
-fn pick_next(rq: &RunQueue, cur: usize) -> Option<usize> {
+pub fn pick_next(rq: &RunQueue, cur: usize) -> Option<usize> {
     // Simple round-robin over READY tasks; skip slot 0 unless no other READY
     for off in 1..rq.tasks.len() {
         let i = (cur + off) % rq.tasks.len();
