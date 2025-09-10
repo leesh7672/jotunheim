@@ -195,7 +195,11 @@ pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
     }
 }
 #[unsafe(no_mangle)]
+<<<<<<< HEAD
 pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp: u64) -> ! {
+=======
+pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp:u64) -> ! {
+>>>>>>> refs/remotes/origin/main
     crate::println!("[#UD] rip={:#018x}", rip);
     let sp = rsp as *const u64;
     unsafe {
