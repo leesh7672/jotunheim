@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-mod allocator;
 mod bootinfo;
 mod mem;
 mod sched;
@@ -38,9 +37,8 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
     }
 }
 
-extern "C" fn main_thread(_arg: usize) -> ! {
+extern "C" fn main_thread(_arg: usize) {
     println!("[JOTUNHEIM] The Main thread is working.");
-    sched::exit_current();
 }
 
 #[panic_handler]

@@ -7,8 +7,8 @@ TOOLCHAIN       ?= nightly-2025-08-15
 # ===== Paths =====
 BOOT_DIR         := jotunboot
 KERNEL_DIR       := jotunheimkernel
-TARGET_DIR_BOOT  := $(BOOT_DIR)/target/x86_64-unknown-uefi/release
-TARGET_DIR_KRN   := $(KERNEL_DIR)/target/x86_64-unknown-none/release
+TARGET_DIR_BOOT  := $(BOOT_DIR)/target/x86_64-unknown-uefi/debug
+TARGET_DIR_KRN   := $(KERNEL_DIR)/target/x86_64-unknown-none/debug
 
 BOOT_EFI_NAME    := jotunboot.efi
 KERNEL_ELF_NAME  := jotunheim-kernel
@@ -37,12 +37,11 @@ all: esp-populate
 .PHONY: boot
 boot: 
 	@echo "==> Building bootloader"
-	cd $(BOOT_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build --release
-
+	cd $(BOOT_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build
 .PHONY: kernel
 kernel: 
 	@echo "==> Building kernel"
-	cd $(KERNEL_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build --release
+	cd $(KERNEL_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build
 
 # ===== ESP population =====
 .PHONY: esp-prep

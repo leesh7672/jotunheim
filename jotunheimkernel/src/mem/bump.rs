@@ -36,7 +36,3 @@ unsafe impl GlobalAlloc for LockedAlloc {
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) { /* no-op */
     }
 }
-
-pub struct LockedAlloc;
-#[global_allocator]
-static GLOBAL: LockedAlloc = LockedAlloc;

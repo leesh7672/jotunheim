@@ -150,7 +150,7 @@ pub fn init() {
 /* ------------------------------- Public API ---------------------------------- */
 
 pub fn spawn_kthread(
-    entry: extern "C" fn(usize) -> !,
+    entry: extern "C" fn(usize),
     arg: usize,
     stack_ptr: *mut u8,
     stack_len: usize,

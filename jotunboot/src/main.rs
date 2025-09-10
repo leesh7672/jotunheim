@@ -22,6 +22,8 @@ use xmas_elf::ElfFile;
 use xmas_elf::header::{Class, Data, Machine, Type as ElfType};
 use xmas_elf::program::Type as PhType;
 
+const HHDM_BASE: u64 = 0xffff_8880_0000_0000;
+
 /* ============================ Global allocator ============================ */
 
 #[global_allocator]
@@ -72,6 +74,7 @@ pub struct BootInfo {
     pub kernel_virt_base: u64,
     pub early_heap_paddr: u64,
     pub early_heap_len: u64,
+    pub hhdm_base: u64,
 }
 
 /* ========================== Serial (QEMU stdio) ========================== */
@@ -326,6 +329,26 @@ unsafe fn map_2mib_page(pml4: *mut u64, va: u64, phys: u64) -> Result<(), ()> {
     }
     Ok(())
 }
+/// Map [0, phys_max) to [HHDM_BASE, HHDM_BASE + phys_max) using 2 MiB pages.
+/// Requires: `pml4` is the root of the new tables; intermediary tables allocated via ensure_*.
+unsafe fn map_hhdm_2mib(pml4: *mut u64, phys_max: u64) -> Result<(), ()> {
+    let two_mib = 2 * 1024 * 1024u64;
+    let mut phys = 0u64;
+    while phys < phys_max {
+        let va = HHDM_BASE + phys;
+
+        // Ensure PD exists, then drop a 2 MiB leaf with PS=1
+        let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
+        let pd = ensure_pd(pdpt, pdpt_index(va))?;
+        let pdi = pd_index(va);
+        if *pd.add(pdi) & PTE_P == 0 {
+            *pd.add(pdi) = align_down(phys, two_mib) | PTE_P | PTE_RW | PTE_PS;
+        }
+
+        phys = phys.saturating_add(two_mib);
+    }
+    Ok(())
+}
 
 // Map the kernel VA range [min_vaddr..max_vaddr) to phys starting at `load_base`,
 // and identity-map 0..ident_bytes (skipping overlap with kernel VA span).
@@ -334,6 +357,7 @@ fn build_pagetables_exec(
     min_vaddr: u64,
     max_vaddr: u64,
     ident_bytes: u64,
+    phys_max: u64,
 ) -> Result<u64, ()> {
     let (pml4, pml4_phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
     let first_2mib_end = 2 * 1024 * 1024;
@@ -377,6 +401,10 @@ fn build_pagetables_exec(
             }
         }
         va += 2 * 1024 * 1024;
+    }
+
+    unsafe {
+        map_hhdm_2mib(pml4, align_up(phys_max, 2 * 1024 * 1024))?;
     }
     Ok(pml4_phys)
 }
@@ -598,6 +626,18 @@ fn main() -> Status {
 
     // Copy UEFI memory map into our own buffer
     let regions = build_memory_regions_vec();
+
+    let phys_max = regions
+        .iter()
+        .map(|r| r.phys_start.saturating_add(r.len))
+        .max()
+        .unwrap_or(0);
+
+    let apic_top = 0xFEE0_0000u64 + 0x1000; // LAPIC page
+    let ioapic_top = 0xFEC0_0000u64 + 0x1000; // IOAPIC page
+    let safety_4g = 0x1_0000_0000u64; // 4 GiB headroom for early bring-up
+    let hhdm_cover_max = phys_max.max(apic_top).max(ioapic_top).max(safety_4g);
+
     let map_bytes = core::mem::size_of::<MemoryRegion>() * regions.len();
     let map_pages = (map_bytes + 0xFFF) / 0x1000;
     let memmap_pages =
@@ -654,7 +694,7 @@ fn main() -> Status {
     slog!("[serial] ident_hi = 0x{:x}", ident_hi);
 
     slog!("[serial] building page tables …");
-    let pml4_phys = build_pagetables_exec(load_base, min_vaddr, max_vaddr, ident_hi)
+    let pml4_phys = build_pagetables_exec(load_base, min_vaddr, max_vaddr, ident_hi, phys_max)
         .unwrap_or_else(|_| die(Status::OUT_OF_RESOURCES, &format_args!("paging failed")));
     slog!("[serial] pml4_phys = 0x{:x}", pml4_phys);
     log_step("paging ready");
@@ -669,6 +709,7 @@ fn main() -> Status {
         kernel_virt_base: min_vaddr,
         early_heap_paddr: early_heap_paddr,
         early_heap_len: early_heap_len,
+        hhdm_base: HHDM_BASE,
     };
     unsafe {
         (bi_page.as_ptr() as *mut BootInfo).write(bi_val);

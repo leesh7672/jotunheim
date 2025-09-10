@@ -8,21 +8,21 @@ pub mod serial;
 pub mod simd;
 pub mod tsc;
 
-use crate::allocator;
 use crate::bootinfo::BootInfo;
-use crate::sched;
+use crate::{mem, sched};
 
 pub fn init(boot: &BootInfo) {
-    allocator::early_init_from_bootinfo(boot);
     simd::enable_sse_avx();
     gdt::init();
     idt::init();
-    mmio_map::early_map_mmio_for_apics();
+    mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
+    mem::init(boot);
+    mem::init_heap();
     sched::init();
     unsafe {
         ioapic::mask_all();
     }
     apic::init();
     apic::open_all_irqs();
-    apic::start_timer_hz(1_000);
+    apic::start_timer_hz(1_00);
 }

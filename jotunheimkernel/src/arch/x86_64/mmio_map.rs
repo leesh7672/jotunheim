@@ -18,23 +18,17 @@ fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
     }
 }
 
-pub fn early_map_mmio_for_apics() {
-    let _alloc = TinyBump::new(0x0030_0000, 0x0031_0000);
-    let mut mapper = unsafe { active_offset_mapper(0) };
+pub fn enforce_apic_mmio_flags(hhdm_off: u64) {
+    let mut mapper = unsafe {
+        crate::mem::mapper::active_offset_mapper(hhdm_off).unwrap_or_else(|e| {
+            println!("[mmio_map] active_offset_mapper failed: {}", e);
+            loop {} // or return early if your API allows it
+        })
+    };
 
-    // --- FAST PATH: keep the loader’s 2 MiB identity mapping ---
-    // Attempt to update flags on the existing 2 MiB PDEs, then flush TLBs.
     enforce_mmio_flags_2m(&mut mapper, 0xFEC0_0000);
     enforce_mmio_flags_2m(&mut mapper, 0xFEE0_0000);
-
-    // TLB shootdown (covers any 2 MiB entries, with global toggle too)
-    use x86_64::registers::control::Cr3;
-    unsafe {
-        let (cr3, flags) = Cr3::read();
-        Cr3::write(cr3, flags); // flush non-global
-    }
 }
-
 /* -------------------- Debug helpers: dump current mapping -------------------- */
 
 #[derive(Copy, Clone)]
@@ -45,9 +39,6 @@ struct Levels {
     pte: Option<u64>,
 }
 
-// Walk the current tables (CR3) and collect entries for a VA.
-// `phys_offset` is the virtual base where physical memory is linearly mapped.
-// While on the loader tables, this is 0 (identity).
 fn dump_va_mapping(va: u64, phys_offset: u64) -> Levels {
     use x86_64::{VirtAddr, registers::control::Cr3};
 
