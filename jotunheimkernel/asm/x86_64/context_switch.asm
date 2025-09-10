@@ -73,6 +73,7 @@ __ctx_switch:
     mov     rdi, [rdx+0x40]
     mov     rsi, [rdx+0x48]
     mov     rbx, [rdx+0x58]         ; restore RBX LAST (no longer need base as RBX)
+    sti
     jmp     qword [rdx+0x80]
 
 .resume:

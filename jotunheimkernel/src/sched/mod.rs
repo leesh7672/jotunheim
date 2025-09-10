@@ -2,9 +2,11 @@
 
 pub mod sched_simd;
 
+use core::cell::UnsafeCell;
+use core::mem::MaybeUninit;
+
 use spin::{Mutex, Once};
 use x86_64::instructions::interrupts::without_interrupts;
-
 extern crate alloc;
 use alloc::{boxed::Box, vec::Vec};
 
@@ -37,40 +39,52 @@ pub struct Task {
     pub time_slice: u32,
 }
 
-const MAX_TASKS: usize = 32;
+const MAX_TASKS: usize = 192;
 const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
 const IDLE_STACK_SIZE: usize = 16 * 1024;
 
 /* ----------------------------- Runqueue container ----------------------------- */
 
 struct RunQueue {
-    tasks: Box<[Option<Task>]>, // boxed slice, avoids stack blowups
+    tasks: &'static mut [Option<Task>], // boxed slice, avoids stack blowups
     current: Option<usize>,
     next_id: TaskId,
     need_resched: bool,
 }
 
-static RQ_ONCE: Once<Mutex<Box<RunQueue>>> = Once::new();
-
 static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
 
-/* --------------------------------- Utilities --------------------------------- */
+struct TaskBuf(UnsafeCell<MaybeUninit<[Option<Task>; MAX_TASKS]>>);
 
-#[inline]
-fn rq() -> &'static Mutex<Box<RunQueue>> {
-    RQ_ONCE.call_once(|| {
-        // Build heap-allocated vector of Nones
-        let mut tasks_vec: Vec<Option<Task>> = Vec::with_capacity(MAX_TASKS);
-        tasks_vec.resize_with(MAX_TASKS, || None);
-        let tasks: Box<[Option<Task>]> = tasks_vec.into_boxed_slice();
+unsafe impl Sync for TaskBuf {}
 
-        let rq = RunQueue {
+static RQ_TASKS_BUF: TaskBuf = TaskBuf(UnsafeCell::new(MaybeUninit::uninit()));
+static RQ_CELL: Once<Mutex<RunQueue>> = Once::new();
+
+fn tasks_slice_init() -> &'static mut [Option<Task>] {
+    unsafe {
+        let arr_mu: &mut MaybeUninit<[Option<Task>; MAX_TASKS]> = &mut *RQ_TASKS_BUF.0.get();
+
+        let base: *mut Option<Task> = (*arr_mu).as_mut_ptr() as *mut Option<Task>;
+        for i in 0..MAX_TASKS {
+            base.add(i).write(None);
+        }
+
+        let arr_ref: &mut [Option<Task>; MAX_TASKS] = (*arr_mu).assume_init_mut();
+        &mut arr_ref[..]
+    }
+}
+
+// NOTE: return &Mutex<RunQueue>; interior mutability lives inside the Mutex.
+fn rq() -> &'static Mutex<RunQueue> {
+    RQ_CELL.call_once(|| {
+        let tasks = tasks_slice_init();
+        Mutex::new(RunQueue {
             tasks,
             current: None,
             next_id: 1,
             need_resched: false,
-        };
-        Mutex::new(Box::new(rq))
+        })
     })
 }
 
@@ -90,8 +104,9 @@ extern "C" fn idle_main(_arg: usize) -> ! {
 pub fn init() {
     static ONCE: spin::Once<()> = spin::Once::new();
     ONCE.call_once(|| {
-        let mut g = rq().lock();
-        let rq: &mut RunQueue = &mut *g;
+        let binding = rq();
+        let mut guard = binding.lock();
+        let rq: &mut RunQueue = &mut *guard;
 
         // Build initial idle thread stack frame
         let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
@@ -305,7 +320,8 @@ where
     F: FnOnce(&mut RunQueue) -> R,
 {
     without_interrupts(|| {
-        let mut guard = rq().lock();
+        let binding = rq();
+        let mut guard = binding.lock();
         let rq: &mut RunQueue = &mut *guard;
         f(rq)
     })
