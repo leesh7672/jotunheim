@@ -2,8 +2,6 @@
 use std::{env, path::PathBuf};
 
 fn main() {
-    println!("cargo:warning=>> build.rs running for JOTUNHEIM KERNEL <<");
-
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=asm/x86_64/isr_stubs.asm");
     println!("cargo:rerun-if-changed=asm/x86_64/context_switch.asm");
