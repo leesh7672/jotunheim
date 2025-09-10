@@ -38,11 +38,9 @@ pub unsafe fn alloc_pages(pages: usize) -> Option<*mut u8> {
         let mut frame = first;
         let mut va_u64 = frame.start_address().as_u64() + PHYS_TO_VIRT_OFFSET;
         let mut page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_u64));
-        unsafe {
-            map.map_to(page, frame, flags, &mut DummyAlloc)
-                .ok()?
-                .flush();
-        }
+        map.map_to(page, frame, flags, &mut DummyAlloc)
+            .ok()?
+            .flush();
 
         for _ in 1..pages {
             let next = fa.allocate_frame()?;
@@ -53,11 +51,9 @@ pub unsafe fn alloc_pages(pages: usize) -> Option<*mut u8> {
             frame = next;
             va_u64 += 0x1000;
             page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_u64));
-            unsafe {
-                map.map_to(page, frame, flags, &mut DummyAlloc)
-                    .ok()?
-                    .flush();
-            }
+            map.map_to(page, frame, flags, &mut DummyAlloc)
+                .ok()?
+                .flush();
         }
 
         Some((first.start_address().as_u64() + PHYS_TO_VIRT_OFFSET) as *mut u8)
@@ -65,13 +61,11 @@ pub unsafe fn alloc_pages(pages: usize) -> Option<*mut u8> {
 }
 
 pub fn unmap_pages(base: *mut u8, pages: usize) -> Result<(), ()> {
-    unsafe {
-        let mut map = active_mapper();
-        for i in 0..pages {
-            let va = (base as u64) + (i as u64) * 0x1000;
-            let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
-            map.unmap(page).map_err(|_| ())?.1.flush();
-        }
+    let mut map = active_mapper();
+    for i in 0..pages {
+        let va = (base as u64) + (i as u64) * 0x1000;
+        let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
+        map.unmap(page).map_err(|_| ())?.1.flush();
     }
     Ok(())
 }

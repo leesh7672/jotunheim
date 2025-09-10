@@ -10,10 +10,7 @@ pub mod tsc;
 
 use crate::allocator;
 use crate::bootinfo::BootInfo;
-use crate::println;
 use crate::sched;
-
-use x86_64::instructions;
 
 pub fn init(boot: &BootInfo) {
     allocator::early_init_from_bootinfo(boot);

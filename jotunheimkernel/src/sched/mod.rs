@@ -11,7 +11,6 @@ use alloc::{boxed::Box, vec::Vec};
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
 use crate::arch::x86_64::simd;
-use crate::arch::x86_64::simd::caps as simd_caps;
 
 /* ------------------------------- Types & consts ------------------------------- */
 
@@ -95,7 +94,7 @@ pub fn init() {
         let rq: &mut RunQueue = &mut *g;
 
         // Build initial idle thread stack frame
-        let base = unsafe { core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8 };
+        let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
         let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
         let init_rsp = (top - 16) as *mut u64;
 
@@ -235,17 +234,11 @@ pub fn yield_now() {
     };
 
     if let Some(area) = prev_simd_ptr {
-        unsafe {
-            simd::save(area);
-        }
+        simd::save(area);
     }
-    unsafe {
-        context::switch(prev_ctx, next_ctx);
-    }
+    context::switch(prev_ctx, next_ctx);
     if let Some(area) = next_simd_ptr {
-        unsafe {
-            simd::restore(area);
-        }
+        simd::restore(area);
     }
 }
 
@@ -299,9 +292,7 @@ pub fn exit_current() -> ! {
         (prev_ctx, next_ctx)
     };
 
-    unsafe {
-        context::switch(prev_ctx, next_ctx);
-    }
+    context::switch(prev_ctx, next_ctx);
     loop {
         x86_64::instructions::hlt();
     }

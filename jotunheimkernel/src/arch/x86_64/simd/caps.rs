@@ -1,7 +1,7 @@
 // simd/caps.rs
 #![allow(dead_code)]
 
-use core::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv, _xsetbv};
+use core::arch::x86_64::{__cpuid, __cpuid_count, _xsetbv};
 use core::sync::atomic::{AtomicU32, Ordering};
 use spin::Once;
 
