@@ -237,34 +237,6 @@ fn tpr_write(val: u32) {
     }
 }
 
-pub fn snapshot_debug() {
-    unsafe {
-        let lvt = match MODE {
-            Mode::XApic { base } => read_mmio(base, REG_LVT_TIMER),
-            Mode::X2Apic => msr_read_u32(x2(REG_LVT_TIMER)),
-        };
-        let div = match MODE {
-            Mode::XApic { base } => read_mmio(base, REG_DIVIDE),
-            Mode::X2Apic => msr_read_u32(x2(REG_DIVIDE)),
-        };
-        let init = match MODE {
-            Mode::XApic { base } => read_mmio(base, REG_INIT_CNT),
-            Mode::X2Apic => msr_read_u32(x2(REG_INIT_CNT)),
-        };
-        let cur = match MODE {
-            Mode::XApic { base } => read_mmio(base, REG_CURR_CNT),
-            Mode::X2Apic => msr_read_u32(x2(REG_CURR_CNT)),
-        };
-        crate::println!(
-            "[APIC] LVT={:#010x} DIV={:#010x} INIT={:#010x} CUR={:#010x}",
-            lvt,
-            div,
-            init,
-            cur
-        );
-    }
-}
-
 pub fn open_all_irqs() {
     unsafe {
         match MODE {

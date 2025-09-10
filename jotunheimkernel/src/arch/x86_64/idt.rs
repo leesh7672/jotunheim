@@ -94,22 +94,6 @@ fn set_gate(idx: usize, handler: unsafe extern "C" fn(), ist: u8, dpl: u8) {
     }
 }
 
-fn dump_gate(vec: u8) {
-    unsafe {
-        let e = &(*(core::ptr::addr_of!(IDT.0)))[vec as usize];
-        let off =
-            (e.offset_low as u64) | ((e.offset_mid as u64) << 16) | ((e.offset_high as u64) << 32);
-        println!(
-            "[IDT] vec={:3} off={:#018x} sel={:#06x} ist={} attr={:#04x}",
-            vec,
-            off,
-            e.selector,
-            e.ist & 0x7,
-            e.type_attr
-        );
-    }
-}
-
 unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
     let idtr = Idtr {
         limit: (size_of::<IdtEntry>() * 256 - 1) as u16,
