@@ -350,9 +350,7 @@ pub fn yield_now() {
     if let Some(area) = prev_simd_ptr {
         simd::save(area);
     }
-    unsafe {
-        context::switch(prev_ctx, next_ctx);
-    }
+    context::switch(prev_ctx, next_ctx);
     if let Some(area) = next_simd_ptr {
         simd::restore(area);
     }
