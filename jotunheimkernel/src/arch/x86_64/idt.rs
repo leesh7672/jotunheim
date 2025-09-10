@@ -140,13 +140,6 @@ pub fn init() {
         set_gate(0xFF as usize, isr_spurious_stub, 0, 0);
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
         load_idt_ptr(idt_ptr);
-
-        dump_gate(6);
-        dump_gate(13);
-        dump_gate(14);
-        dump_gate(8);
-        dump_gate(apic::TIMER_VECTOR);
-        dump_gate(0xFF);
     }
 }
 
@@ -193,35 +186,11 @@ pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
         x86_64::instructions::hlt();
     }
 }
-#[inline(always)]
-fn dump_bytes(ptr: u64, n: usize) {
-    let p = ptr as *const u8;
-    let mut buf = [0u8; 16];
-    for i in 0..n.min(buf.len()) {
-        unsafe {
-            buf[i] = core::ptr::read(p.add(i));
-        }
-    }
-    crate::println!(
-        "[#UD] {:#x}: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
-        ptr,
-        buf[0],
-        buf[1],
-        buf[2],
-        buf[3],
-        buf[4],
-        buf[5],
-        buf[6],
-        buf[7]
-    );
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp: u64) -> ! {
-    dump_bytes(rip, 8);
-    loop {
-        x86_64::instructions::hlt();
-    }
+    println!("[#UD] rip: {:#x}, rsp: {:#x}", rip, rsp);
+    sched::exit_current();
 }
 
 #[unsafe(no_mangle)]
@@ -231,16 +200,12 @@ pub extern "C" fn isr_timer_rust() -> *const PreemptPack {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn preempt(pack: *const PreemptPack) -> ! {
+pub extern "C" fn preempt(pack: *const PreemptPack) {
     unsafe {
         let p = &*pack;
         if !p.prev_simd.is_null() {
             simd::save(p.prev_simd);
         }
         context::switch(p.prev_ctx, p.next_ctx);
-        if !p.next_simd.is_null() {
-            simd::restore(p.next_simd);
-        }
-        core::hint::unreachable_unchecked();
     }
 }

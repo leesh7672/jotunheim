@@ -41,5 +41,4 @@ fn main() {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=arch_x86_64_asm");
-    println!("cargo:warning=ASM OUT_DIR={}", out_dir.display());
 }

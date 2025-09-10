@@ -30,11 +30,11 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
     println!("[JOTUNHEIM] Kernel starts.");
 
     arch::x86_64::init(boot);
-    apic::snapshot_debug();
 
     let ptr = core::ptr::addr_of_mut!(DEMO_STACK) as *mut u8;
     sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
-
+    let ptr2 = core::ptr::addr_of_mut!(DEMO_STACK2) as *mut u8;
+    sched::spawn_kthread(kthread_demo2, 0, ptr2, DEMO_STACK_LEN);
     interrupts::enable();
     loop {
         hlt();
@@ -42,8 +42,7 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
 }
 
 extern "C" fn kthread_demo(_arg: usize) -> ! {
-    let ptr2 = core::ptr::addr_of_mut!(DEMO_STACK2) as *mut u8;
-    sched::spawn_kthread(kthread_demo2, 0, ptr2, DEMO_STACK_LEN);
+    println!("[Threading 1]");
     let mut a = 0u128;
     loop {
         println!("[Threading 1] {a}");

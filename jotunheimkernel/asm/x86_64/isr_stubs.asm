@@ -170,8 +170,7 @@ isr_timer_stub:
     jz      .no_preempt
 
     mov     rdi, rax                ; arg0 = pack*
-    jmp     preempt ; non-returning in forward path
-
+    call     preempt ; non-returning in forward path
 .no_preempt:
     POP_VOLATILES
     iretq
