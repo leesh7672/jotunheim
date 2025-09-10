@@ -7,6 +7,7 @@ use core::mem::MaybeUninit;
 
 use spin::{Mutex, Once};
 use x86_64::instructions::interrupts::without_interrupts;
+
 extern crate alloc;
 
 use crate::arch::x86_64::context;
@@ -24,6 +25,8 @@ pub enum TaskState {
 }
 
 unsafe extern "C" {
+    // Must not return: pops (arg, entry) prepared by init/spawn,
+    // calls entry(arg), and on return jumps to sched_exit_current_trampoline.
     fn kthread_trampoline();
 }
 
@@ -44,26 +47,41 @@ const IDLE_STACK_SIZE: usize = 16 * 1024;
 
 /* ----------------------------- Runqueue container ----------------------------- */
 
-struct RunQueue {
-    tasks: &'static mut [Option<Task>], // boxed slice, avoids stack blowups
+pub struct RunQueue {
+    // Static-backed slice to avoid early-boot heap allocations.
+    tasks: &'static mut [Option<Task>],
     current: Option<usize>,
     next_id: TaskId,
     need_resched: bool,
 }
 
-static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
+/* ---------------------- Static storage (no allocator) ------------------------- */
 
+// Backing storage for the tasks array. We initialize it exactly once under RQ_CELL.call_once().
 struct TaskBuf(UnsafeCell<MaybeUninit<[Option<Task>; MAX_TASKS]>>);
-
+// SAFETY: We only write to the buffer inside Once::call_once() and then expose a single
+// &'static mut [Option<Task>] slice. No aliasing mutable references are created afterwards.
 unsafe impl Sync for TaskBuf {}
 
 static RQ_TASKS_BUF: TaskBuf = TaskBuf(UnsafeCell::new(MaybeUninit::uninit()));
+
+// One-time global runqueue (guarded by a Mutex).
 static RQ_CELL: Once<Mutex<RunQueue>> = Once::new();
 
+static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
+
+/* --------------------------------- Utilities --------------------------------- */
+
+#[inline]
 fn tasks_slice_init() -> &'static mut [Option<Task>] {
+    // SAFETY:
+    // - Called exactly once within RQ_CELL.call_once().
+    // - We write a valid `None` to each element before exposing any reference.
+    // - We then yield a single &'static mut slice to RunQueue.
     unsafe {
         let arr_mu: &mut MaybeUninit<[Option<Task>; MAX_TASKS]> = &mut *RQ_TASKS_BUF.0.get();
 
+        // Initialize each element to None in place without needing Option<Task>:Copy.
         let base: *mut Option<Task> = (*arr_mu).as_mut_ptr() as *mut Option<Task>;
         for i in 0..MAX_TASKS {
             base.add(i).write(None);
@@ -74,7 +92,7 @@ fn tasks_slice_init() -> &'static mut [Option<Task>] {
     }
 }
 
-// NOTE: return &Mutex<RunQueue>; interior mutability lives inside the Mutex.
+#[inline]
 fn rq() -> &'static Mutex<RunQueue> {
     RQ_CELL.call_once(|| {
         let tasks = tasks_slice_init();
@@ -94,7 +112,7 @@ pub extern "C" fn sched_exit_current_trampoline() -> ! {
 
 extern "C" fn idle_main(_arg: usize) -> ! {
     loop {
-        x86_64::instructions::hlt();
+        yield_now();
     }
 }
 
@@ -103,18 +121,18 @@ extern "C" fn idle_main(_arg: usize) -> ! {
 pub fn init() {
     static ONCE: spin::Once<()> = spin::Once::new();
     ONCE.call_once(|| {
-        let binding = rq();
-        let mut guard = binding.lock();
-        let rq: &mut RunQueue = &mut *guard;
+        let mut g = rq().lock();
+        let rq: &mut RunQueue = &mut *g;
 
-        // Build initial idle thread stack frame
-        let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
+        // Build initial idle thread stack frame for kthread_trampoline
+        let base = unsafe { core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8 };
         let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
-        let init_rsp = (top - 16) as *mut u64;
 
+        // kthread_trampoline expects: [arg][entry] on the stack top (popped in that order)
+        let init_rsp = (top - 16) as *mut u64;
         unsafe {
-            core::ptr::write(init_rsp.add(0), 0u64);
-            core::ptr::write(init_rsp.add(1), idle_main as u64);
+            core::ptr::write(init_rsp.add(0), 0u64); // arg
+            core::ptr::write(init_rsp.add(1), idle_main as u64); // entry
         }
 
         rq.tasks[0] = Some(Task {
@@ -123,12 +141,11 @@ pub fn init() {
             ctx: CpuContext {
                 rip: kthread_trampoline as u64,
                 rsp: init_rsp as u64,
-                rflags: 0x202,
                 ..CpuContext::default()
             },
             kstack_top: top,
             simd: sched_simd::SimdArea::alloc(),
-            time_slice: u32::MAX,
+            time_slice: u32::MAX, // never timeslice the idle task
         });
         rq.next_id += 1;
         rq.current = Some(0);
@@ -143,6 +160,7 @@ pub fn spawn_kthread(
     stack_ptr: *mut u8,
     stack_len: usize,
 ) -> TaskId {
+    // Prepare trampoline stack frame [arg][entry]
     let top = ((stack_ptr as usize + stack_len) & !0xF) as u64;
     let init_rsp = (top - 16) as *mut u64;
     unsafe {
@@ -153,7 +171,6 @@ pub fn spawn_kthread(
     let ctx = CpuContext {
         rip: kthread_trampoline as u64,
         rsp: init_rsp as u64,
-        rflags: 0x202,
         ..CpuContext::default()
     };
 
@@ -179,7 +196,7 @@ pub fn tick() {
         let Some(cur) = rq.current else { return };
         let t = rq.tasks[cur].as_mut().unwrap();
         if t.time_slice == u32::MAX {
-            return; // idle
+            return; // idle task
         }
         if t.time_slice > 0 {
             t.time_slice -= 1;
@@ -197,7 +214,7 @@ pub fn should_preempt_now() -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn preempt_trampoline() {
+pub fn preempt_trampoline() {
     yield_now();
 }
 
@@ -213,6 +230,7 @@ pub fn yield_now() {
             return;
         };
         if nxt == cur {
+            rq.need_resched = false;
             return;
         }
 
@@ -247,16 +265,24 @@ pub fn yield_now() {
         (prev_ctx, next_ctx, prev_simd_ptr, next_simd_ptr)
     };
 
+    // Save/restore SIMD around the context switch. Order: save prev -> switch -> restore next.
     if let Some(area) = prev_simd_ptr {
-        simd::save(area);
+        unsafe {
+            simd::save(area);
+        } // or fxsave path inside impl when OSXSAVE=0
     }
-    context::switch(prev_ctx, next_ctx);
+    unsafe {
+        context::switch(prev_ctx, next_ctx);
+    }
     if let Some(area) = next_simd_ptr {
-        simd::restore(area);
+        unsafe {
+            simd::restore(area);
+        } // or fxrstor path inside impl
     }
 }
 
 fn pick_next(rq: &RunQueue, cur: usize) -> Option<usize> {
+    // Simple round-robin over READY tasks; skip slot 0 unless no other READY
     for off in 1..rq.tasks.len() {
         let i = (cur + off) % rq.tasks.len();
         if i == 0 {
@@ -306,7 +332,9 @@ pub fn exit_current() -> ! {
         (prev_ctx, next_ctx)
     };
 
-    context::switch(prev_ctx, next_ctx);
+    unsafe {
+        context::switch(prev_ctx, next_ctx);
+    }
     loop {
         x86_64::instructions::hlt();
     }
@@ -319,8 +347,7 @@ where
     F: FnOnce(&mut RunQueue) -> R,
 {
     without_interrupts(|| {
-        let binding = rq();
-        let mut guard = binding.lock();
+        let mut guard = rq().lock();
         let rq: &mut RunQueue = &mut *guard;
         f(rq)
     })

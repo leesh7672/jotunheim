@@ -4,7 +4,6 @@ use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-
 use crate::arch::x86_64::{apic, gdt};
 use crate::{println, sched};
 
