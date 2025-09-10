@@ -44,6 +44,7 @@ __ctx_switch:
     push    qword [rdx+OFF_RFLAGS]
     popfq
 
+    sti
     jmp     qword [rdx+OFF_RIP]
 
 .resume:

@@ -4,6 +4,7 @@ pub mod sched_simd;
 
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use spin::{Mutex, Once};
 use x86_64::instructions::interrupts::without_interrupts;
@@ -48,10 +49,10 @@ const IDLE_STACK_SIZE: usize = 16 * 1024;
 /* ----------------------------- Runqueue container ----------------------------- */
 
 pub struct RunQueue {
-    pub tasks: &'static mut [Option<Task>],
-    pub current: Option<usize>,
-    pub next_id: TaskId,
-    pub need_resched: bool,
+    tasks: &'static mut [Option<Task>],
+    current: Option<usize>,
+    next_id: TaskId,
+    need_resched: bool,
 }
 
 /* ---------------------- Static storage (no allocator) ------------------------- */
@@ -61,11 +62,8 @@ struct TaskBuf(UnsafeCell<MaybeUninit<[Option<Task>; MAX_TASKS]>>);
 // SAFETY: We only write to the buffer inside Once::call_once() and then expose a single
 // &'static mut [Option<Task>] slice. No aliasing mutable references are created afterwards.
 unsafe impl Sync for TaskBuf {}
-
 static RQ_TASKS_BUF: TaskBuf = TaskBuf(UnsafeCell::new(MaybeUninit::uninit()));
-
 static RQ_CELL: Once<Mutex<RunQueue>> = Once::new();
-
 static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
 
 /* --------------------------------- Utilities --------------------------------- */
@@ -188,28 +186,119 @@ pub fn spawn_kthread(
     })
 }
 
-pub fn tick() {
-    with_rq_locked(|rq| {
-        let Some(cur) = rq.current else { return };
+#[repr(C)]
+pub struct PreemptPack {
+    pub prev_ctx: *mut CpuContext,
+    pub next_ctx: *const CpuContext,
+    pub prev_simd: *mut u8, // null if none
+    pub next_simd: *mut u8, // null if none
+}
+
+static mut PREEMPT_PACK: PreemptPack = PreemptPack {
+    prev_ctx: core::ptr::null_mut(),
+    next_ctx: core::ptr::null(),
+    prev_simd: core::ptr::null_mut(),
+    next_simd: core::ptr::null_mut(),
+};
+
+static DEFER_RESCHED: AtomicBool = AtomicBool::new(false);
+
+pub fn tick() -> *const PreemptPack {
+    if let Some(mut g) = rq().try_lock() {
+        let rq = &mut *g;
+        if let Some(cur) = rq.current {
+            let t = rq.tasks[cur].as_mut().unwrap();
+            if t.time_slice != u32::MAX && t.time_slice > 0 {
+                t.time_slice -= 1;
+                if t.time_slice == 0 {
+                    t.state = TaskState::Ready;
+                    t.time_slice = DEFAULT_SLICE;
+                    rq.need_resched = true;
+                }
+            }
+        }
+    } else {
+        DEFER_RESCHED.store(true, Ordering::Release);
+        return core::ptr::null();
+    }
+
+    if DEFER_RESCHED.swap(false, Ordering::AcqRel) {
+        return core::ptr::null();
+    }
+
+    let mut g = match rq().try_lock() {
+        Some(guard) => guard,
+        None => return core::ptr::null(),
+    };
+    let rq = &mut *g;
+
+    let cur = match rq.current {
+        Some(i) => i,
+        None => return core::ptr::null(),
+    };
+    let cur_is_idle = rq.tasks[cur].as_ref().unwrap().time_slice == u32::MAX;
+
+    let some_ready = rq.tasks.iter().enumerate().any(|(i, t)| {
+        i != cur
+            && t.as_ref()
+                .is_some_and(|tt| matches!(tt.state, TaskState::Ready))
+    });
+
+    if !(rq.need_resched || (cur_is_idle && some_ready)) {
+        return core::ptr::null();
+    }
+
+    let Some(nxt) = pick_next(rq, cur) else {
+        rq.need_resched = false;
+        return core::ptr::null();
+    };
+    if nxt == cur {
+        rq.need_resched = false;
+        return core::ptr::null();
+    }
+
+    // Prepare states for the impending switch
+    {
         let t = rq.tasks[cur].as_mut().unwrap();
-        if t.time_slice == u32::MAX {
-            return; // idle task
-        }
-        if t.time_slice > 0 {
-            t.time_slice -= 1;
-        }
-        if t.time_slice == 0 {
+        if t.time_slice != u32::MAX {
             t.state = TaskState::Ready;
             t.time_slice = DEFAULT_SLICE;
-            rq.need_resched = true;
         }
-    });
-}
+    }
+    rq.tasks[nxt].as_mut().unwrap().state = TaskState::Running;
 
-pub fn should_preempt_now() -> bool {
-    with_rq_locked(|rq| rq.need_resched)
-}
+    let (prev_ctx, prev_simd) = {
+        let prev = rq.tasks[cur].as_mut().unwrap();
+        (
+            &mut prev.ctx as *mut CpuContext,
+            prev.simd
+                .as_ref()
+                .map(|s| s.as_mut_ptr())
+                .unwrap_or(core::ptr::null_mut()),
+        )
+    };
+    let (next_ctx, next_simd) = {
+        let next = rq.tasks[nxt].as_ref().unwrap();
+        (
+            &next.ctx as *const CpuContext,
+            next.simd
+                .as_ref()
+                .map(|s| s.as_mut_ptr())
+                .unwrap_or(core::ptr::null_mut()),
+        )
+    };
 
+    rq.current = Some(nxt);
+    rq.need_resched = false;
+
+    unsafe {
+        PREEMPT_PACK.prev_ctx = prev_ctx;
+        PREEMPT_PACK.next_ctx = next_ctx;
+        PREEMPT_PACK.prev_simd = prev_simd;
+        PREEMPT_PACK.next_simd = next_simd;
+        &raw const PREEMPT_PACK
+    }
+}
 /* ------------------------------ Core switching ------------------------------- */
 
 pub fn yield_now() {

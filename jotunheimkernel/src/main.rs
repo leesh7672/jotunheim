@@ -36,8 +36,6 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
     sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
 
     interrupts::enable();
-    sched::yield_now();
-
     loop {
         hlt();
     }

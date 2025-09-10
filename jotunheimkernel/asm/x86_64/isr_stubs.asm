@@ -32,7 +32,7 @@ extern isr_ud_rust             ; fn(u64, u64, u64, u64) -> !
 extern isr_timer_rust          ; fn() -> ()
 extern isr_spurious_rust       ; fn() -> ()
 
-extern preempt_switch
+extern preempt
 
 ; ---------------- Common helpers ----------------
 ; We save caller-saved registers per SysV: rax, rcx, rdx, rsi, rdi, r8..r11
@@ -170,7 +170,8 @@ isr_timer_stub:
     jz      .no_preempt
 
     mov     rdi, rax                ; arg0 = pack*
-    jmp     preempt_switch ; non-returning in forward path
+    jmp     preempt ; non-returning in forward path
+
 .no_preempt:
     POP_VOLATILES
     iretq
