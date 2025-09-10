@@ -16,9 +16,8 @@ use x86_64::instructions::{hlt, interrupts};
 
 use crate::arch::x86_64::serial;
 
-static mut DEMO_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
-static mut DEMO_STACK2: [u8; 16 * 1024] = [0; 16 * 1024];
-const DEMO_STACK_LEN: usize = 16 * 1024;
+static mut STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+const STACK_LEN: usize = 16 * 1024;
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
@@ -27,34 +26,21 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
     unsafe {
         serial::init_com1(115_200);
     }
-    println!("[JOTUNHEIM] Kernel starts.");
+    println!("[JOTUNHEIM] The Kernel starts.");
 
     arch::x86_64::init(boot);
 
-    let ptr = core::ptr::addr_of_mut!(DEMO_STACK) as *mut u8;
-    sched::spawn_kthread(kthread_demo, 0, ptr, DEMO_STACK_LEN);
-    let ptr2 = core::ptr::addr_of_mut!(DEMO_STACK2) as *mut u8;
-    sched::spawn_kthread(kthread_demo2, 0, ptr2, DEMO_STACK_LEN);
+    let ptr = core::ptr::addr_of_mut!(STACK) as *mut u8;
+    sched::spawn_kthread(main_thread, 0, ptr, STACK_LEN);
     interrupts::enable();
     loop {
         hlt();
     }
 }
 
-extern "C" fn kthread_demo(_arg: usize) -> ! {
-    println!("[Threading 1]");
-    let mut a = 0u128;
-    loop {
-        println!("[Threading 1] {a}");
-        a += 1;
-    }
-}
-extern "C" fn kthread_demo2(_arg: usize) -> ! {
-    let mut b = 0u128;
-    loop {
-        println!("[Threading 2] {b}");
-        b += 1;
-    }
+extern "C" fn main_thread(_arg: usize) -> ! {
+    println!("[JOTUNHEIM] The Main thread is working.");
+    sched::exit_current();
 }
 
 #[panic_handler]

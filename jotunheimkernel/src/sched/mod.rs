@@ -43,7 +43,7 @@ pub struct Task {
 }
 
 const MAX_TASKS: usize = 192;
-pub const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
+pub const DEFAULT_SLICE: u32 = 2; // 5ms at 1 kHz
 const IDLE_STACK_SIZE: usize = 16 * 1024;
 
 /* ----------------------------- Runqueue container ----------------------------- */
@@ -166,6 +166,7 @@ pub fn spawn_kthread(
     let ctx = CpuContext {
         rip: kthread_trampoline as u64,
         rsp: init_rsp as u64,
+        rflags: 0x202,
         ..CpuContext::default()
     };
 
