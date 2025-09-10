@@ -14,7 +14,7 @@ use crate::bootinfo::BootInfo;
 use core::panic::PanicInfo;
 use x86_64::instructions::{hlt, interrupts};
 
-use crate::arch::x86_64::{apic, serial};
+use crate::arch::x86_64::serial;
 
 static mut DEMO_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 static mut DEMO_STACK2: [u8; 16 * 1024] = [0; 16 * 1024];

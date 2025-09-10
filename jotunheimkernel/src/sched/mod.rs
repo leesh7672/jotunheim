@@ -120,7 +120,7 @@ pub fn init() {
         let rq: &mut RunQueue = &mut *g;
 
         // Build initial idle thread stack frame for kthread_trampoline
-        let base = unsafe { core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8 };
+        let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
         let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
 
         // kthread_trampoline expects: [arg][entry] on the stack top (popped in that order)
@@ -348,17 +348,13 @@ pub fn yield_now() {
 
     // Save/restore SIMD around the context switch. Order: save prev -> switch -> restore next.
     if let Some(area) = prev_simd_ptr {
-        unsafe {
-            simd::save(area);
-        } // or fxsave path inside impl when OSXSAVE=0
+        simd::save(area);
     }
     unsafe {
         context::switch(prev_ctx, next_ctx);
     }
     if let Some(area) = next_simd_ptr {
-        unsafe {
-            simd::restore(area);
-        } // or fxrstor path inside impl
+        simd::restore(area);
     }
 }
 
@@ -412,10 +408,7 @@ pub fn exit_current() -> ! {
 
         (prev_ctx, next_ctx)
     };
-
-    unsafe {
-        context::switch(prev_ctx, next_ctx);
-    }
+    context::switch(prev_ctx, next_ctx);
     loop {
         x86_64::instructions::hlt();
     }

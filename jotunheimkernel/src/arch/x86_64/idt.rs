@@ -1,6 +1,5 @@
 #![allow(clippy::missing_safety_doc)]
 
-use crate::arch::x86_64::context::CpuContext;
 use crate::arch::x86_64::{apic, context, gdt, simd};
 use crate::sched::PreemptPack;
 use crate::{println, sched};
