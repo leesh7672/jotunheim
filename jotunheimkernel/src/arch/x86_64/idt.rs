@@ -194,26 +194,32 @@ pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
         x86_64::instructions::hlt();
     }
 }
-#[unsafe(no_mangle)]
-<<<<<<< HEAD
-pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp: u64) -> ! {
-=======
-pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp:u64) -> ! {
->>>>>>> refs/remotes/origin/main
-    crate::println!("[#UD] rip={:#018x}", rip);
-    let sp = rsp as *const u64;
-    unsafe {
-        crate::println!(
-            "[#UD] rip={:#x} rsp[0..5]={:x} {:x} {:x} {:x} {:x}",
-            rip,
-            *sp,
-            *sp.add(1),
-            *sp.add(2),
-            *sp.add(3),
-            *sp.add(4)
-        );
+#[inline(always)]
+fn dump_bytes(ptr: u64, n: usize) {
+    let p = ptr as *const u8;
+    let mut buf = [0u8; 16];
+    for i in 0..n.min(buf.len()) {
+        unsafe {
+            buf[i] = core::ptr::read(p.add(i));
+        }
     }
-    crate::arch::x86_64::mmio_map::log_va_mapping("UD-rip", rip, 0);
+    crate::println!(
+        "[#UD] {:#x}: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+        ptr,
+        buf[0],
+        buf[1],
+        buf[2],
+        buf[3],
+        buf[4],
+        buf[5],
+        buf[6],
+        buf[7]
+    );
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp: u64) -> ! {
+    dump_bytes(rip, 8);
     loop {
         x86_64::instructions::hlt();
     }

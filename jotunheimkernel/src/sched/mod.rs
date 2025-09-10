@@ -37,7 +37,7 @@ pub struct Task {
     pub time_slice: u32,
 }
 
-const MAX_TASKS: usize = 192;
+const MAX_TASKS: usize = 32;
 const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
 const IDLE_STACK_SIZE: usize = 16 * 1024;
 
