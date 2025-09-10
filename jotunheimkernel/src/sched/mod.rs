@@ -8,7 +8,6 @@ use core::mem::MaybeUninit;
 use spin::{Mutex, Once};
 use x86_64::instructions::interrupts::without_interrupts;
 extern crate alloc;
-use alloc::{boxed::Box, vec::Vec};
 
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
