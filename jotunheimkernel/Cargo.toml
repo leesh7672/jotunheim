@@ -19,7 +19,7 @@ heapless = "0.9.1"
 
 [profile.dev]
 debug = true
-opt-level = 0
+opt-level = 3
 debug-assertions = true
 lto = false
 panic = "abort"
@@ -29,7 +29,7 @@ panic = "abort"
 debug = true
 codegen-units = 1
 lto = true
-opt-level = 2
+opt-level = 3
 
 [build-dependencies]
 nasm-rs = "0.3"

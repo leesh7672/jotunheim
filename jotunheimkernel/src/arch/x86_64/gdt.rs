@@ -25,30 +25,30 @@ static TSS: Once<TaskStateSegment> = Once::new();
 
 // Early bring-up stacks (replace with per-CPU allocator + guard pages later)
 #[unsafe(link_section = ".bss")]
-static mut RSP0_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+static mut RSP0_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss")]
-static mut DF_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+static mut DF_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss")]
-static mut PF_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+static mut PF_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss.stack")]
-static mut TIMER_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+static mut TIMER_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss.stack")]
-static mut GP_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+static mut GP_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss.stack")]
-static mut UD_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+static mut UD_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss.stack")]
-static mut BP_STACK: [u8; 16 * 0x20_000] = [0; 16 * 0x20_000];
+static mut BP_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss.stack")]
-static mut DB_STACK: [u8; 16 * 0x20_000] = [0; 16 * 0x20_000];
+static mut DB_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 
-const RSP0_STACK_LEN: usize = 16 * 1024;
-const DF_STACK_LEN: usize = 16 * 1024;
-const PF_STACK_LEN: usize = 16 * 1024;
-const TIMER_STACK_LEN: usize = 16 * 1024;
-const GP_STACK_LEN: usize = 16 * 1024;
-const UD_STACK_LEN: usize = 16 * 1024;
-const BP_STACK_LEN: usize = 16 * 0x20_000;
-const DB_STACK_LEN: usize = 16 * 0x20_000;
+const RSP0_STACK_LEN: usize = 16 * 0x40_000;
+const DF_STACK_LEN: usize = 16 * 0x40_000;
+const PF_STACK_LEN: usize = 16 * 0x40_000;
+const TIMER_STACK_LEN: usize = 16 * 0x40_000;
+const GP_STACK_LEN: usize = 16 * 0x40_000;
+const UD_STACK_LEN: usize = 16 * 0x40_000;
+const BP_STACK_LEN: usize = 16 * 0x40_000;
+const DB_STACK_LEN: usize = 16 * 0x40_000;
 
 const IST_DF: u16 = 1;
 const IST_PF: u16 = 2;
