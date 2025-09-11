@@ -48,12 +48,11 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
 }
 
 extern "C" fn main_thread(arg: usize) {
-    let boot: &'static BootInfo = unsafe { &*(arg as *const BootInfo) };
-
-    mem::init(boot);
+    let boot: BootInfo = unsafe { *(arg as *const BootInfo) };
+    mem::init(&boot);
     mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
     mem::init_heap();
-    
+
     kprintln!("[JOTUNHEIM] The Main thread is working.");
 }
 
