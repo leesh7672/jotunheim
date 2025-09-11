@@ -58,8 +58,9 @@ esp-populate: boot kernel esp-prep
 
 # ===== Run in QEMU =====
 .PHONY: run
-run: esp-populate
+run:
 	@echo "==> Launching QEMU"
+	@echo "__QEMU_BEGIN__"
 	$(QEMU) -machine $(QEMU_MACHINE) -m $(QEMU_MEM) -cpu max \
 		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
 		-drive format=raw,file=fat:rw:$(ESP) \
@@ -68,7 +69,8 @@ run: esp-populate
   		-chardev socket,id=ch1,host=127.0.0.1,port=1234,server=on,wait=off,telnet=off \
   		-serial chardev:ch1 \
 		-display gtk
-		$(QEMU_EXTRA)
+		$(QEMU_EXTRA) &
+	@echo __QEMU_READY__"
 
 # ===== Utilities =====
 .PHONY: clean

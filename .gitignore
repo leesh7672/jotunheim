@@ -45,7 +45,6 @@ ehthumbs.db
 desktop.ini
 
 # === IDE / Editor ===
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -71,3 +70,5 @@ fuzz/corpus/
 # === Cores ===
 
 *.core
+*.pid
+*.log
