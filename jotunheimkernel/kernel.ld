@@ -50,6 +50,14 @@ SECTIONS
   /* Useful end markers */
   __kernel_start = ADDR(.text);
   __kernel_end   = .;
+  __text_start   = ADDR(.text);
+  __text_end     = ADDR(.text)   + SIZEOF(.text);
+  __rodata_start = ADDR(.rodata);
+  __rodata_end   = ADDR(.rodata) + SIZEOF(.rodata);
+  __data_start   = ADDR(.data);
+  __data_end     = ADDR(.data)   + SIZEOF(.data);
+  __bss_start    = ADDR(.bss);
+  __bss_end      = ADDR(.bss)    + SIZEOF(.bss);
 
   /* Discard sections we don’t need */
   /DISCARD/ :

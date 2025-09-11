@@ -1,4 +1,4 @@
-use crate::println;
+use crate::kprintln;
 
 use x86_64::{
     VirtAddr,
@@ -14,13 +14,13 @@ fn is_page_aligned(x: u64) -> bool {
 /// Build a mapper using a validated HHDM offset, without panicking.
 pub fn active_offset_mapper(hhdm: u64) -> Result<OffsetPageTable<'static>, &'static str> {
     if !is_page_aligned(hhdm) {
-        println!("[mapper] HHDM not 4K aligned: {:#x}", hhdm);
+        kprintln!("[mapper] HHDM not 4K aligned: {:#x}", hhdm);
         return Err("misaligned hhdm");
     }
 
     // 1) HHDM base must itself be canonical
     let hhdm_va = VirtAddr::try_new(hhdm).map_err(|_| {
-        println!("[mapper] HHDM not canonical: {:#x}", hhdm);
+        kprintln!("[mapper] HHDM not canonical: {:#x}", hhdm);
         "non-canonical hhdm"
     })?;
 
@@ -28,20 +28,22 @@ pub fn active_offset_mapper(hhdm: u64) -> Result<OffsetPageTable<'static>, &'sta
     let (l4_frame, _) = Cr3::read();
     let l4_phys = l4_frame.start_address().as_u64();
     if !is_page_aligned(l4_phys) {
-        println!("[mapper] L4 phys not page-aligned: {:#x}", l4_phys);
+        kprintln!("[mapper] L4 phys not page-aligned: {:#x}", l4_phys);
         return Err("l4 phys misaligned");
     }
 
     let l4_virt_u = l4_phys.wrapping_add(hhdm);
     let l4_virt_va = VirtAddr::try_new(l4_virt_u).map_err(|_| {
-        println!(
+        kprintln!(
             "[mapper] L4 virt not canonical: phys={:#x} hhdm={:#x} sum={:#x}",
-            l4_phys, hhdm, l4_virt_u
+            l4_phys,
+            hhdm,
+            l4_virt_u
         );
         "non-canonical l4 virt"
     })?;
     if !is_page_aligned(l4_virt_va.as_u64()) {
-        println!(
+        kprintln!(
             "[mapper] L4 virt not 4K aligned: {:#x}",
             l4_virt_va.as_u64()
         );

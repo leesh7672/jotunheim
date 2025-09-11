@@ -1,21 +1,20 @@
 #![no_std]
 #![no_main]
 
+mod arch;
 mod bootinfo;
+mod debug;
 mod mem;
 mod sched;
 mod util;
-mod arch {
-    pub mod x86_64;
-}
 
 use crate::bootinfo::BootInfo;
 use core::panic::PanicInfo;
 use x86_64::instructions::{hlt, interrupts};
 
-use crate::arch::x86_64::serial;
+use crate::arch::x86_64::{mmio_map, serial};
 
-static mut STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+static mut MAIN_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 const STACK_LEN: usize = 16 * 1024;
 
 #[unsafe(no_mangle)]
@@ -24,26 +23,39 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
     interrupts::disable();
     unsafe {
         serial::init_com1(115_200);
+        serial::init_com2(115_200);
     }
-    println!("[JOTUNHEIM] The Kernel starts.");
-
+    kprintln!("[JOTUNHEIM] The Kernel starts.");
     arch::x86_64::init(boot);
 
-    let ptr = core::ptr::addr_of_mut!(STACK) as *mut u8;
-    sched::spawn_kthread(main_thread, 0, ptr, STACK_LEN);
+    kprintln!("[BOOT] COM2 ready? {}", serial::com2_ready());
+
+    let boot_ptr = boot as *const BootInfo as usize;
+
+    let main_stack_ptr = core::ptr::addr_of_mut!(MAIN_STACK) as *mut u8;
+    sched::spawn_kthread(main_thread, boot_ptr, main_stack_ptr, STACK_LEN);
+
+    unsafe {
+        core::arch::asm!("int3");
+    }
+    
     interrupts::enable();
     loop {
         hlt();
     }
 }
 
-extern "C" fn main_thread(_arg: usize) {
-    println!("[JOTUNHEIM] The Main thread is working.");
+extern "C" fn main_thread(arg: usize) {
+    let boot: &'static BootInfo = unsafe { &*(arg as *const BootInfo) };
+    kprintln!("[JOTUNHEIM] The Main thread is working.");
+    mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
+    mem::init(boot);
+    mem::init_heap();
 }
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    crate::println!("\n*** KERNEL PANIC ***\n{}", info);
+    kprintln!("\n*** KERNEL PANIC ***\n{}", info);
     loop {
         x86_64::instructions::hlt();
     }

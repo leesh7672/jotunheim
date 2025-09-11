@@ -20,7 +20,7 @@ use x86_64::{
 };
 
 use crate::bootinfo::BootInfo;
-use crate::println;
+use crate::kprintln;
 
 pub const PAGE_SIZE: usize = 4096;
 
@@ -75,17 +75,17 @@ unsafe fn validate_hhdm_with_rsdp(candidate_off: u64, rsdp_phys: u64) -> bool {
 pub fn init(boot: &BootInfo) {
     let off = boot.hhdm_base;
     if (off & 0xfff) != 0 {
-        println!("[mem] BUG: hhdm_base not 4K aligned: {:#x}", off);
+        kprintln!("[mem] BUG: hhdm_base not 4K aligned: {:#x}", off);
         loop {}
     }
 
     match unsafe { crate::mem::mapper::active_offset_mapper(off) } {
         Ok(_) => { /* good */ }
         Err(e) => {
-            println!("[mem] active_offset_mapper failed: {}", e);
+            kprintln!("[mem] active_offset_mapper failed: {}", e);
             let rsdp = (boot.rsdp_addr.wrapping_add(off)) as *const u8;
             let ok = unsafe { core::slice::from_raw_parts(rsdp, 8).eq(b"RSD PTR ") };
-            println!("[mem] RSDP via HHDM: sig_ok={}", ok);
+            kprintln!("[mem] RSDP via HHDM: sig_ok={}", ok);
             loop {}
         }
     }
@@ -101,7 +101,7 @@ pub fn init(boot: &BootInfo) {
 
     let _ = active_mapper();
 
-    println!("[mem] HHDM offset = {:#x}", unsafe { PHYS_TO_VIRT_OFFSET });
+    kprintln!("[mem] HHDM offset = {:#x}", unsafe { PHYS_TO_VIRT_OFFSET });
 }
 
 fn active_mapper() -> OffsetPageTable<'static> {

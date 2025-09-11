@@ -1,11 +1,14 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::arch::x86_64::{apic, context, gdt, simd};
+use crate::debug::{Outcome, TrapFrame, breakpoint, rsp};
 use crate::sched::PreemptPack;
-use crate::{println, sched};
+use crate::{debug, kprintln, sched};
+
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicBool, Ordering};
+use x86_64::instructions::hlt;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -51,6 +54,8 @@ unsafe extern "C" {
     fn isr_ud_stub();
     fn isr_timer_stub();
     fn isr_spurious_stub();
+    fn isr_bp_stub();
+    fn isr_db_stub();
 }
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
@@ -64,6 +69,8 @@ const IST_PF: u8 = 2; // uses interrupt_stack_table[1]
 const IST_TIMER: u8 = 3;
 const IST_GP: u8 = 4;
 const IST_UD: u8 = 5;
+const IST_BP: u8 = 6;
+const IST_DB: u8 = 7;
 
 fn set_gate_raw(
     idt_base: *mut IdtEntry,
@@ -119,8 +126,10 @@ pub fn init() {
         set_gate(14, isr_pf_stub, IST_PF, 0); // #PF
         set_gate(8, isr_df_stub, IST_DF, 0); // #DF with IST1
         set_gate(6, isr_ud_stub, IST_UD, 0); // #UD
+        set_gate(3, isr_bp_stub, IST_BP, 0);
         set_gate(apic::TIMER_VECTOR as usize, isr_timer_stub, IST_TIMER, 0);
         set_gate(0xFF as usize, isr_spurious_stub, 0, 0);
+        set_gate(0x01 as usize, isr_db_stub, IST_DB, 0);
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
         load_idt_ptr(idt_ptr);
     }
@@ -130,14 +139,14 @@ pub fn init() {
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     if !THROTTLED_ONCE.swap(true, Ordering::Relaxed) {
-        println!("[INT] default vec={:#04x} err={:#018x}", vec, err);
+        kprintln!("[INT] default vec={:#04x} err={:#018x}", vec, err);
     }
     unsafe { apic::eoi() };
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
-    println!("[#GP] err={:#018x}", err);
+    kprintln!("[#GP] err={:#018x}", err);
     loop {
         x86_64::instructions::hlt();
     }
@@ -153,9 +162,11 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
     let cr2 = Cr2::read().expect("CR2 read failed").as_u64();
     crate::arch::x86_64::mmio_map::log_va_mapping("PF-cr2", cr2, 0);
 
-    println!(
+    kprintln!(
         "[#PF] err={:#018x} cr2={:#016x} rip={:#016x}",
-        err, cr2, rip
+        err,
+        cr2,
+        rip
     );
     loop {
         x86_64::instructions::hlt();
@@ -163,17 +174,52 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_df_rust(_vec: u64, _err: u64) -> ! {
-    println!("[#DF] double fault");
+pub extern "C" fn isr_df_rust(tf: *mut crate::arch::x86_64::context::TrapFrame) -> ! {
+    kprintln!("[#DF] double fault");
     loop {
-        x86_64::instructions::hlt();
+        hlt();
+    }
+    sched::exit_current();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn isr_ud_rust() -> ! {
+    kprintln!("[#UD] undefined");
+    sched::exit_current();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn isr_bp_rust(tf: *mut TrapFrame) {
+    // hit software INT3: restore orig byte + RIP-=1 (if ours), and remember it
+    let last_hit = {
+        let t = unsafe { &mut *tf };
+        breakpoint::on_int3_enter(&mut t.rip)
+    };
+
+    // hand control to the gdb stub (RSP)
+    match debug::rsp::serve(tf) {
+        Outcome::Continue => {
+            // re-arm the bp if GDB continued
+            breakpoint::on_resume_continue(last_hit);
+        }
+        Outcome::SingleStep => {
+            // defer re-arming until the #DB we’ll get after this step
+            breakpoint::on_resume_step(last_hit);
+        }
+        Outcome::KillTask => crate::sched::exit_current(),
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_ud_rust(_vec: u64, _err: u64, rip: u64, rsp: u64) -> ! {
-    println!("[#UD] rip: {:#x}, rsp: {:#x}", rip, rsp);
-    sched::exit_current();
+pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
+    // single-step trap: if we deferred a replant, do it now
+    breakpoint::on_single_step_enter();
+
+    match debug::rsp::serve(tf) {
+        Outcome::Continue => { /* nothing special */ }
+        Outcome::SingleStep => { /* TF already set by server; resume */ }
+        Outcome::KillTask => crate::sched::exit_current(),
+    }
 }
 
 #[unsafe(no_mangle)]

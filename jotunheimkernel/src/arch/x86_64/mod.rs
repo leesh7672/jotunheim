@@ -9,15 +9,12 @@ pub mod simd;
 pub mod tsc;
 
 use crate::bootinfo::BootInfo;
-use crate::{mem, sched};
+use crate::{debug, mem, sched};
 
 pub fn init(boot: &BootInfo) {
     simd::enable_sse_avx();
     gdt::init();
     idt::init();
-    mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
-    mem::init(boot);
-    mem::init_heap();
     sched::init();
     unsafe {
         ioapic::mask_all();

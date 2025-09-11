@@ -1,8 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 
+use crate::kprintln;
 use crate::mem::mapper::active_offset_mapper;
 use crate::mem::simple_alloc::TinyBump;
-use crate::println;
 
 use x86_64::VirtAddr;
 use x86_64::structures::paging::{Mapper, Page, PageTableFlags as F, Size2MiB};
@@ -21,7 +21,7 @@ fn enforce_mmio_flags_2m<M: Mapper<Size2MiB>>(mapper: &mut M, va_2m: u64) {
 pub fn enforce_apic_mmio_flags(hhdm_off: u64) {
     let mut mapper = unsafe {
         crate::mem::mapper::active_offset_mapper(hhdm_off).unwrap_or_else(|e| {
-            println!("[mmio_map] active_offset_mapper failed: {}", e);
+            kprintln!("[mmio_map] active_offset_mapper failed: {}", e);
             loop {} // or return early if your API allows it
         })
     };
@@ -106,8 +106,13 @@ fn dump_va_mapping(va: u64, phys_offset: u64) -> Levels {
 
 pub fn log_va_mapping(tag: &str, va: u64, phys_offset: u64) {
     let lev = dump_va_mapping(va, phys_offset);
-    println!(
+    kprintln!(
         "[PT] {tag} VA={:#016x} PML4E={:#018x} PDPTE={:?} PDE={:?} PTE={:?}",
-        va, lev.pml4e, lev.pdpte, lev.pde, lev.pte
+        va,
+        lev.pml4e,
+        lev.pdpte,
+        lev.pde,
+        lev.pte,
+        tag = tag,
     );
 }
