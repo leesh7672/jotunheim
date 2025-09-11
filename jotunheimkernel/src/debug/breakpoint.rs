@@ -108,7 +108,7 @@ pub fn remove(addr: u64) -> bool {
 
 // Called right as you enter the debugger on #BP (INT3).
 // If RIP==addr+1 for a planted bp, unpatch + rewind, and mark for replant-on-resume/step.
-pub fn on_int3_enter(rip: &mut u64) -> Option<u64> {
+pub fn on_breakpoint_enter(rip: &mut u64) -> Option<u64> {
     let hit_addr = rip.wrapping_sub(1);
     let mut tbl = BP_TABLE.lock();
     for e in tbl.iter_mut() {

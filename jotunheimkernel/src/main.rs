@@ -38,7 +38,7 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
     unsafe {
         core::arch::asm!("int3");
     }
-    
+
     interrupts::enable();
     loop {
         hlt();

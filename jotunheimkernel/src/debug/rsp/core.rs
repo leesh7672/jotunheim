@@ -193,6 +193,9 @@ impl RspServer {
     ) -> Outcome {
         let tx = _tx; // move into closure scope (no &mut self)
 
+        let (tid, pc) = (1u64, unsafe { (*tf).rip });
+        send_t_stop(&tx, 0x05, tid, pc, /*swbreak=*/ true);
+
         loop {
             let len = recv_pkt_len(&tx);
             if len == 0 {
@@ -444,4 +447,66 @@ impl RspServer {
             }
         }
     }
+}
+
+fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64, swbreak: bool) {
+    // small stack buffer; no refs to statics
+    let mut buf = [0u8; 96];
+    let mut w = 0usize;
+
+    // "Txx"
+    buf[w] = b'T';
+    w += 1;
+    buf[w] = hex4((sig >> 4) & 0xF);
+    w += 1;
+    buf[w] = hex4(sig & 0xF);
+    w += 1;
+
+    // "thread:<hex>;"
+    buf[w..w + 7].copy_from_slice(b"thread:");
+    w += 7;
+    // write hex(tid)
+    let mut tmp = [0u8; 16];
+    let mut i = 0;
+    let mut t = tid;
+    if t == 0 {
+        tmp[i] = b'0';
+        i += 1;
+    }
+    while t != 0 {
+        tmp[i] = hex4((t & 0xF) as u8);
+        i += 1;
+        t >>= 4;
+    }
+    // reverse
+    for k in (0..i).rev() {
+        buf[w] = tmp[k];
+        w += 1;
+    }
+    buf[w] = b';';
+    w += 1;
+
+    // "pc:<hex>;"
+    buf[w..w + 3].copy_from_slice(b"pc:");
+    w += 3;
+    let mut tmp2 = [0u8; 16];
+    let mut j = 0;
+    let mut p = pc;
+    if p == 0 {
+        tmp2[j] = b'0';
+        j += 1;
+    }
+    while p != 0 {
+        tmp2[j] = hex4((p & 0xF) as u8);
+        j += 1;
+        p >>= 4;
+    }
+    for k in (0..j).rev() {
+        buf[w] = tmp2[k];
+        w += 1;
+    }
+    buf[w] = b';';
+    w += 1;
+
+    send_pkt(tx, &buf[..w]);
 }

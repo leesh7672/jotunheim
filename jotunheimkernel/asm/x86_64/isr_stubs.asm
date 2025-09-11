@@ -358,20 +358,23 @@ isr_ud_stub:
 ; LAPIC Timer (vector 0x20) — NO error code
 ; Must EOI in Rust (or here after the call).
 ; ============================================================================ ;
+; extern isr_timer_rust          ; fn(hbase: u64) -> *const PreemptPack
+
 isr_timer_stub:
     PUSH_VOLATILES
+    lea     rdi, [rsp]        ; rdi = HBASE = current HW frame (RIP|CS|RFLAGS[..])
     sub     rsp, 8
     call    isr_timer_rust
     add     rsp, 8
 
     test    rax, rax
     jz      .no_preempt
-
-    mov     rdi, rax                ; arg0 = pack*
-    call     preempt ; non-returning in forward path
+    mov     rdi, rax
+    call    preempt
 .no_preempt:
     POP_VOLATILES
     iretq
+
 
 ; ============================================================================ ;
 ; LAPIC Spurious — NO error code

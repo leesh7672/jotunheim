@@ -3,6 +3,7 @@
 use crate::arch::x86_64::{apic, context, gdt, simd};
 use crate::debug::{Outcome, TrapFrame, breakpoint, rsp};
 use crate::sched::PreemptPack;
+use crate::serial;
 use crate::{debug, kprintln, sched};
 
 use core::mem::size_of;
@@ -193,7 +194,7 @@ pub extern "C" fn isr_bp_rust(tf: *mut TrapFrame) {
     // hit software INT3: restore orig byte + RIP-=1 (if ours), and remember it
     let last_hit = {
         let t = unsafe { &mut *tf };
-        breakpoint::on_int3_enter(&mut t.rip)
+        breakpoint::on_breakpoint_enter(&mut t.rip)
     };
 
     // hand control to the gdb stub (RSP)
@@ -213,7 +214,9 @@ pub extern "C" fn isr_bp_rust(tf: *mut TrapFrame) {
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
     // single-step trap: if we deferred a replant, do it now
-    breakpoint::on_single_step_enter();
+
+    let t = unsafe { &mut *tf };
+    breakpoint::on_breakpoint_enter(&mut t.rip);
 
     match debug::rsp::serve(tf) {
         Outcome::Continue => { /* nothing special */ }
@@ -223,7 +226,17 @@ pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust() -> *const PreemptPack {
+
+pub extern "C" fn isr_timer_rust(hbase: u64) -> *const PreemptPack {
+    if let Some(b) = serial::com2_getc_nb() {
+        if b == 0x03 {
+            let rip = unsafe { *(hbase as *const u64) };
+            let _ = breakpoint::insert(rip);
+            unsafe { apic::eoi() };
+            return core::ptr::null();
+        }
+    }
+
     apic::timer_isr_eoi_and_rearm_deadline();
     sched::tick()
 }
