@@ -10,7 +10,7 @@
         {
             "label": "run",
             "type": "process",
-            "dependsOn": "process",
+            "dependsOn": "build",
             "command": "daemon",
             "args": [
                 "konsole",
