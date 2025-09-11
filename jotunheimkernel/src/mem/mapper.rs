@@ -11,51 +11,16 @@ fn is_page_aligned(x: u64) -> bool {
     (x & 0xfff) == 0
 }
 
-/// Build a mapper using a validated HHDM offset, without panicking.
-pub fn active_offset_mapper(hhdm: u64) -> Result<OffsetPageTable<'static>, &'static str> {
-    if !is_page_aligned(hhdm) {
-        kprintln!("[mapper] HHDM not 4K aligned: {:#x}", hhdm);
-        return Err("misaligned hhdm");
-    }
+// src/mem/mapper.rs
+pub unsafe fn active_offset_mapper(hhdm: u64) -> Result<OffsetPageTable<'static>, &'static str> {
+    use x86_64::{VirtAddr, registers::control::Cr3};
 
-    // 1) HHDM base must itself be canonical
-    let hhdm_va = VirtAddr::try_new(hhdm).map_err(|_| {
-        kprintln!("[mapper] HHDM not canonical: {:#x}", hhdm);
-        "non-canonical hhdm"
-    })?;
+    // This must be canonical; you already asserted before calling.
+    let hhdm_va = VirtAddr::new(hhdm);
 
-    // 2) Compute L4 virtual address through HHDM and validate
-    let (l4_frame, _) = Cr3::read();
-    let l4_phys = l4_frame.start_address().as_u64();
-    if !is_page_aligned(l4_phys) {
-        kprintln!("[mapper] L4 phys not page-aligned: {:#x}", l4_phys);
-        return Err("l4 phys misaligned");
-    }
+    let (l4_frame, _flags) = Cr3::read();
+    let phys = l4_frame.start_address();
+    let l4_ptr = (hhdm_va.as_u64() + phys.as_u64()) as *mut PageTable;
 
-    let l4_virt_u = l4_phys.wrapping_add(hhdm);
-    let l4_virt_va = VirtAddr::try_new(l4_virt_u).map_err(|_| {
-        kprintln!(
-            "[mapper] L4 virt not canonical: phys={:#x} hhdm={:#x} sum={:#x}",
-            l4_phys,
-            hhdm,
-            l4_virt_u
-        );
-        "non-canonical l4 virt"
-    })?;
-    if !is_page_aligned(l4_virt_va.as_u64()) {
-        kprintln!(
-            "[mapper] L4 virt not 4K aligned: {:#x}",
-            l4_virt_va.as_u64()
-        );
-        return Err("l4 virt misaligned");
-    }
-
-    // 3) Touch the page to prove the mapping exists (avoids creating a &mut first)
-    let peek = unsafe { core::slice::from_raw_parts(l4_virt_va.as_ptr(), 8) };
-    let _: u8 = peek[0];
-
-    // 4) Now create the reference and mapper
-    let l4: &mut PageTable = unsafe { &mut *(l4_virt_va.as_mut_ptr()) };
-    let mapper = unsafe { OffsetPageTable::new(l4, hhdm_va) };
-    Ok(mapper)
+    Ok(unsafe { OffsetPageTable::new(&mut *l4_ptr, hhdm_va) })
 }

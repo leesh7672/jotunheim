@@ -17,6 +17,13 @@ use crate::arch::x86_64::{mmio_map, serial};
 static mut MAIN_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 const STACK_LEN: usize = 16 * 1024;
 
+fn setup_debugger() {
+    kprintln!("Waiting debugger.");
+    unsafe {
+        core::arch::asm!("int3");
+    }
+}
+
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start(boot: &BootInfo) -> ! {
@@ -26,18 +33,13 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         serial::init_com2(115_200);
     }
     kprintln!("[JOTUNHEIM] The Kernel starts.");
-    arch::x86_64::init(boot);
-
-    kprintln!("[BOOT] COM2 ready? {}", serial::com2_ready());
+    arch::x86_64::init();
 
     let boot_ptr = boot as *const BootInfo as usize;
-
     let main_stack_ptr = core::ptr::addr_of_mut!(MAIN_STACK) as *mut u8;
     sched::spawn_kthread(main_thread, boot_ptr, main_stack_ptr, STACK_LEN);
 
-    unsafe {
-        core::arch::asm!("int3");
-    }
+    setup_debugger();
 
     interrupts::enable();
     loop {
@@ -47,10 +49,12 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
 
 extern "C" fn main_thread(arg: usize) {
     let boot: &'static BootInfo = unsafe { &*(arg as *const BootInfo) };
-    kprintln!("[JOTUNHEIM] The Main thread is working.");
-    mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
+
     mem::init(boot);
+    mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
     mem::init_heap();
+    
+    kprintln!("[JOTUNHEIM] The Main thread is working.");
 }
 
 #[panic_handler]

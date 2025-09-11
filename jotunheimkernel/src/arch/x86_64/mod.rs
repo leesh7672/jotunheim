@@ -11,7 +11,7 @@ pub mod tsc;
 use crate::bootinfo::BootInfo;
 use crate::{debug, mem, sched};
 
-pub fn init(boot: &BootInfo) {
+pub fn init() {
     simd::enable_sse_avx();
     gdt::init();
     idt::init();
@@ -21,5 +21,5 @@ pub fn init(boot: &BootInfo) {
     }
     apic::init();
     apic::open_all_irqs();
-    apic::start_timer_hz(1_00);
+    apic::start_timer_hz(1_000);
 }

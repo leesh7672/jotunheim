@@ -3,7 +3,6 @@
 
 #[repr(C)]
 pub struct TrapFrame {
-    // GP regs — order must match your asm SAVE_REGS:
     pub r15: u64,
     pub r14: u64,
     pub r13: u64,
@@ -19,10 +18,8 @@ pub struct TrapFrame {
     pub rcx: u64,
     pub rbx: u64,
     pub rax: u64,
-    // software-pushed vector and (synthetic) error code
     pub vec: u64,
     pub err: u64,
-    // hardware interrupt frame
     pub rip: u64,
     pub cs: u64,
     pub rflags: u64,

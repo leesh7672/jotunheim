@@ -10,11 +10,12 @@
         {
             "label": "run",
             "type": "process",
-            "dependsOn": "shell",
-            "command": "bash",
+            "dependsOn": "process",
+            "command": "daemon",
             "args": [
-                "-lc",
-                "daemon -p QEMU.pid -o QEMU.log qemu-system-x86_64 -machine q35 -m 8G -cpu max  -drive if=pflash,format=raw,readonly=on,file=/usr/local/share/edk2-qemu/QEMU_UEFI_CODE-x86_64.fd  -drive format=raw,file=fat:rw:esp -serial none -chardev socket,id=ch1,host=127.0.0.1,port=1234,server=on,wait=off,telnet=off -serial chardev:ch1 -display gtk"
+                "konsole",
+                "-e",
+                "qemu-system-x86_64 -machine q35 -m 8G -cpu Haswell -drive if=pflash,format=raw,readonly=on,file=/usr/local/share/edk2-qemu/QEMU_UEFI_CODE-x86_64.fd  -drive format=raw,file=fat:rw:esp -chardev stdio,id=ch0,signal=off -chardev socket,id=ch1,host=127.0.0.1,port=1234,server=on,wait=off,telnet=off -serial chardev:ch0 -serial chardev:ch1 -display gtk"
             ],
             "isBackground": true
         },
@@ -24,7 +25,7 @@
             "command": "sleep",
             "dependsOn": "run",
             "args": [
-                "4"
+                "3"
             ],
             "dependsOrder": "parallel"
         },
