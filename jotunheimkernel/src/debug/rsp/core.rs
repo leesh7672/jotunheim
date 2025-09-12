@@ -16,8 +16,8 @@ use super::transport::Transport;
 
 // ---- Buffers (no &/&mut to statics; use raw ptrs) ---------------------------
 
-const INBUF_LEN: usize = 8192;
-const OUTBUF_LEN: usize = 8192;
+const INBUF_LEN: usize = 1024;
+const OUTBUF_LEN: usize = 1024;
 const TMP_LEN: usize = 512;
 
 #[unsafe(link_section = ".bss")]
@@ -217,7 +217,7 @@ impl RspServer {
                 b'q' => {
                     if starts_with(0, len, b"qSupported") {
                         // keep it minimal; DO NOT advertise qXfer if you don't serve it
-                        send_pkt(&tx, b"PacketSize=1800;QStartNoAckMode+");
+                        send_pkt(&tx, b"PacketSize=500;QStartNoAckMode+");
                     } else if starts_with(0, len, b"qAttached") {
                         send_pkt(&tx, b"1"); // we’re attached to a live target
                     } else if starts_with(0, len, b"qfThreadInfo") {

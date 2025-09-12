@@ -13,7 +13,7 @@ extern crate alloc;
 use crate::arch::x86_64::context;
 use crate::arch::x86_64::context::CpuContext;
 use crate::arch::x86_64::simd;
-use crate::kprintln;
+use crate::kprint;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -25,12 +25,6 @@ pub enum TaskState {
     Sleeping,
     Dead,
     Void,
-}
-
-unsafe extern "C" {
-    // Must not return: pops (arg, entry) prepared by init/spawn,
-    // calls entry(arg), and on return jumps to sched_exit_current_trampoline.
-    fn kthread_trampoline();
 }
 
 pub type TaskId = u64;
@@ -47,8 +41,8 @@ pub struct Task {
 
 impl Copy for Task {}
 
-const MAX_TASKS: usize = 16;
-pub const DEFAULT_SLICE: u32 = 2; // 5ms at 1 kHz
+const MAX_TASKS: usize = 128;
+pub const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
 const IDLE_STACK_SIZE: usize = 16 * 1024;
 
 /* ----------------------------- Runqueue container ----------------------------- */
@@ -124,11 +118,6 @@ impl RunQueue {
 
 /* --------------------------------- Utilities --------------------------------- */
 
-#[unsafe(no_mangle)]
-pub extern "C" fn sched_exit_current_trampoline() -> ! {
-    exit_current()
-}
-
 extern "C" fn idle_main(_arg: usize) -> ! {
     loop {
         hlt();
@@ -138,59 +127,20 @@ extern "C" fn idle_main(_arg: usize) -> ! {
 /* --------------------------------- Init path --------------------------------- */
 
 pub fn init() {
-    static ONCE: spin::Once<()> = spin::Once::new();
-    ONCE.call_once(|| {
-        with_rq_locked(|rq| {
-            let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
-            let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
-            let init_rsp = (top - 16) as *mut u64;
-            let task = &mut rq.tasks[0];
-            unsafe {
-                core::ptr::write(init_rsp.add(0), 0u64);
-                core::ptr::write(init_rsp.add(1), idle_main as u64);
-            }
-
-            task.id = rq.next_id;
-            task.state = TaskState::Running;
-            task.kstack_top = top;
-
-            task.ctx.rip = kthread_trampoline as u64;
-            task.ctx.rsp = init_rsp as u64;
-
-            for i in 0..sched_simd::SIZE {
-                task.simd.dump[i] = 0;
-            }
-            task.time_slice = u32::MAX;
-
-            rq.next_id += 1;
-            rq.current = 0;
-        })
-    });
+    spawn_kthread(idle_main, 0, core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8, IDLE_STACK_SIZE);
 }
 
 /* ------------------------------- Public API ---------------------------------- */
 
 pub fn spawn_kthread(
-    entry: extern "C" fn(usize),
+    entry: extern "C" fn(usize) -> !,
     arg: usize,
     stack_ptr: *mut u8,
     stack_len: usize,
 ) -> TaskId {
     // Prepare trampoline stack frame [arg][entry]
     let top = ((stack_ptr as usize + stack_len) & !0xF) as u64;
-    let init_rsp = (top - 16) as *mut u64;
-    unsafe {
-        core::ptr::write(init_rsp.add(0), arg as u64);
-        core::ptr::write(init_rsp.add(1), entry as u64);
-    }
-
-    let ctx = CpuContext {
-        rip: kthread_trampoline as u64,
-        rsp: init_rsp as u64,
-        rflags: 0x202,
-        ..CpuContext::default()
-    };
-
+    let init_rsp = 16 as *mut u64;
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
@@ -203,7 +153,11 @@ pub fn spawn_kthread(
         let task = &mut rq.tasks[idx];
         task.id = id;
         task.state = TaskState::Ready;
-        task.ctx = ctx;
+
+        task.ctx.rip = entry as u64;
+        task.ctx.rdi = arg as u64;
+        task.ctx.rsp = init_rsp as u64;
+        task.ctx.rflags = 0x202;
         task.kstack_top = top;
         task.time_slice = DEFAULT_SLICE;
 
