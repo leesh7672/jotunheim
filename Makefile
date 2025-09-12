@@ -16,10 +16,12 @@ KERNEL_ELF_NAME  := jotunheim-kernel
 BOOT_EFI         := $(TARGET_DIR_BOOT)/$(BOOT_EFI_NAME)
 KERNEL_ELF       := $(TARGET_DIR_KRN)/$(KERNEL_ELF_NAME)
 
-ESP              ?= esp
-ESP_EFI_DIR      := $(ESP)/EFI/BOOT
+ESP              ?= ::
+IMG				 ?= $(PWD)/image.img
+ESP_EFI_DIR      := $(ESP)/EFI
+ESP_BOOT_DIR	 := $(ESP_EFI_DIR)/BOOT
 ESP_OS_DIR       := $(ESP)/JOTUNHEIM
-ESP_BOOTX64      := $(ESP_EFI_DIR)/BOOTX64.EFI
+ESP_BOOTX64      := $(ESP_BOOT_DIR)/BOOTX64.EFI
 ESP_KERNEL       := $(ESP_OS_DIR)/KERNEL.ELF
 
 # ===== QEMU / UEFI firmware =====
@@ -45,32 +47,36 @@ kernel:
 
 # ===== ESP population =====
 .PHONY: esp-prep
-esp-prep:
+esp-prep: image
 	@echo "==> Preparing ESP directories: $(ESP_EFI_DIR) and $(ESP_OS_DIR)"
-	mkdir -p "$(ESP_EFI_DIR)" "$(ESP_OS_DIR)"
-
+	mmd -i $(IMG) "$(ESP_EFI_DIR)" "$(ESP_BOOT_DIR)" "$(ESP_OS_DIR)"
+	
 .PHONY: esp-populate
 esp-populate: boot kernel esp-prep
 	@echo "==> Copying artifacts to ESP"
-	cp "$(BOOT_EFI)" "$(ESP_BOOTX64)"
-	cp "$(KERNEL_ELF)" "$(ESP_KERNEL)"
+	mcopy -i "$(IMG)" -b "$(BOOT_EFI)" "$(ESP_BOOTX64)"
+	mcopy -i "$(IMG)" -b "$(KERNEL_ELF)" "$(ESP_KERNEL)"
 	@echo "==> ESP ready at: $(ESP)"
+
+.PHONY: image
+image: distclean
+	@echo "==> Generating image"
+	dd if=/dev/zero of="$(IMG)" bs=1M count=4000
+	newfs_msdos -F32 "$(IMG)"
 
 # ===== Run in QEMU =====
 .PHONY: run
-run:
+run: image
 	@echo "==> Launching QEMU"
-	@echo "__QEMU_BEGIN__"
 	$(QEMU) -machine $(QEMU_MACHINE) -m $(QEMU_MEM) -cpu max \
 		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
-		-drive format=raw,file=fat:rw:$(ESP) \
+		-drive format=raw,file=$(IMG) \
   		-chardev stdio,id=ch0,signal=off \
   		-serial chardev:ch0 \
   		-chardev socket,id=ch1,host=127.0.0.1,port=1234,server=on,wait=off,telnet=off \
   		-serial chardev:ch1 \
 		-display gtk
 		$(QEMU_EXTRA) &
-	@echo __QEMU_READY__"
 
 # ===== Utilities =====
 .PHONY: clean
@@ -80,9 +86,9 @@ clean:
 	-cd $(KERNEL_DIR) && cargo clean
 
 .PHONY: distclean
-distclean: clean
+distclean:
 	@echo "==> Removing ESP: $(ESP)"
-	rm -rf "$(ESP)"
+	rm -rf "$(IMG)"
 
 .PHONY: tree
 tree:
