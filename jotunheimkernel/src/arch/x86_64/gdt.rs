@@ -25,16 +25,16 @@ static GDT: Once<GlobalDescriptorTable> = Once::new();
 static SELECTORS: Once<Selectors> = Once::new();
 static TSS: Once<TaskStateSegment> = Once::new();
 
-const STACK_SIZE: usize = 32;
+const STACK_SIZE: usize = 32 * 1024;
 
-const RSP0_STACK_LEN: usize = 1024 * STACK_SIZE;
-const DF_STACK_LEN: usize = 1024 * STACK_SIZE;
-const PF_STACK_LEN: usize = 1024 * STACK_SIZE;
-const TIMER_STACK_LEN: usize = 1024 * STACK_SIZE;
-const GP_STACK_LEN: usize = 1024 * STACK_SIZE;
-const UD_STACK_LEN: usize = 1024 * STACK_SIZE;
-const BP_STACK_LEN: usize = 1024 * STACK_SIZE;
-const DB_STACK_LEN: usize = 1024 * STACK_SIZE;
+const RSP0_STACK_LEN: usize = STACK_SIZE;
+const DF_STACK_LEN: usize = STACK_SIZE;
+const PF_STACK_LEN: usize = STACK_SIZE;
+const TIMER_STACK_LEN: usize = STACK_SIZE;
+const GP_STACK_LEN: usize = STACK_SIZE;
+const UD_STACK_LEN: usize = STACK_SIZE;
+const BP_STACK_LEN: usize = STACK_SIZE;
+const DB_STACK_LEN: usize = STACK_SIZE;
 
 // Early bring-up stacks (replace with per-CPU allocator + guard pages later)
 #[unsafe(link_section = ".bss")]
