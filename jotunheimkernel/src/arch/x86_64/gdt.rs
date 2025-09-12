@@ -30,15 +30,15 @@ static mut RSP0_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 static mut DF_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 #[unsafe(link_section = ".bss")]
 static mut PF_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
-#[unsafe(link_section = ".bss.stack")]
+#[unsafe(link_section = ".bss")]
 static mut TIMER_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
-#[unsafe(link_section = ".bss.stack")]
+#[unsafe(link_section = ".bss")]
 static mut GP_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
-#[unsafe(link_section = ".bss.stack")]
+#[unsafe(link_section = ".bss")]
 static mut UD_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
-#[unsafe(link_section = ".bss.stack")]
+#[unsafe(link_section = ".bss")]
 static mut BP_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
-#[unsafe(link_section = ".bss.stack")]
+#[unsafe(link_section = ".bss")]
 static mut DB_STACK: [u8; 16 * 0x40_000] = [0; 16 * 0x40_000];
 
 const RSP0_STACK_LEN: usize = 16 * 0x40_000;
@@ -115,7 +115,7 @@ pub fn init() {
     }
 
     let sels = Selectors { code, data, tss };
-    let sels_ref: &'static Selectors = SELECTORS.call_once(|| sels);
+    let _ = SELECTORS.call_once(|| sels);
 }
 
 // ---- Accessors ----
@@ -125,13 +125,13 @@ pub fn selectors() -> Selectors {
 }
 #[inline]
 pub fn code_selector() -> SegmentSelector {
-    SELECTORS.get().unwrap().code
+    selectors().code
 }
 #[inline]
 pub fn data_selector() -> SegmentSelector {
-    SELECTORS.get().unwrap().data
+    selectors().data
 }
 #[inline]
 pub fn tss_selector() -> SegmentSelector {
-    SELECTORS.get().unwrap().tss
+    selectors().tss
 }

@@ -6,6 +6,7 @@ use spin::Mutex;
 pub mod breakpoint;
 
 pub use crate::arch::x86_64::context::TrapFrame;
+use crate::kprintln;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Outcome {
@@ -24,6 +25,12 @@ pub fn clear_tf(tf: &mut TrapFrame) {
 #[inline(always)]
 pub fn set_tf(tf: &mut TrapFrame) {
     tf.rflags |= 1 << 8;
+}
+
+pub fn setup() {
+    unsafe {
+        core::arch::asm!("int3");
+    }
 }
 
 pub mod rsp {

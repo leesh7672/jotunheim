@@ -591,8 +591,7 @@ fn main() -> Status {
     let bi_page = must_alloc_page(MemoryType::LOADER_DATA, "BootInfo");
     let tramp_page = must_alloc_page(MemoryType::LOADER_CODE, "trampoline");
 
-    // Kernel stack (32 KiB)
-    let stack_pages = 8usize;
+    let stack_pages = 48usize;
     let stack_base =
         boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, stack_pages)
             .unwrap_or_else(|e| {

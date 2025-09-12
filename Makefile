@@ -2,7 +2,7 @@
 
 # ===== Toolchains / versions =====
 RUSTUP          := rustup
-TOOLCHAIN       ?= nightly-2025-08-15
+TOOLCHAIN       ?= stable
 
 # ===== Paths =====
 BOOT_DIR         := jotunboot
@@ -37,11 +37,11 @@ all: esp-populate
 .PHONY: boot
 boot: 
 	@echo "==> Building bootloader"
-	cd $(BOOT_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build
+	cd $(BOOT_DIR) && cargo build
 .PHONY: kernel
 kernel: 
 	@echo "==> Building kernel"
-	cd $(KERNEL_DIR) && $(RUSTUP) run $(TOOLCHAIN) cargo build
+	cd $(KERNEL_DIR) && cargo build
 
 # ===== ESP population =====
 .PHONY: esp-prep
