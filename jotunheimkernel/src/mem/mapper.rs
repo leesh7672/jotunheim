@@ -1,11 +1,6 @@
 
 use x86_64::structures::paging::{OffsetPageTable, PageTable};
 
-#[inline(always)]
-fn is_page_aligned(x: u64) -> bool {
-    (x & 0xfff) == 0
-}
-
 // src/mem/mapper.rs
 pub unsafe fn active_offset_mapper(hhdm: u64) -> Result<OffsetPageTable<'static>, &'static str> {
     use x86_64::{VirtAddr, registers::control::Cr3};

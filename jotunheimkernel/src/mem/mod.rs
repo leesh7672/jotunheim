@@ -22,7 +22,7 @@ use x86_64::{
 use crate::bootinfo::BootInfo;
 use crate::kprintln;
 
-pub const PAGE_SIZE: usize = 4096;
+const PAGE_SIZE: usize = 4096;
 
 static mut PHYS_TO_VIRT_OFFSET: u64 = 0;
 
@@ -218,9 +218,6 @@ pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
 
     Some(out_va as *mut u8)
 }
-
-pub unsafe fn free_pages(_base: *mut u8, _pages: usize) {}
-pub unsafe fn unmap_pages(_base: *mut u8, _pages: usize) {}
 
 #[inline]
 pub fn phys_to_virt(pa: u64) -> u64 {

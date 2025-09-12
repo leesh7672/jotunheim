@@ -43,7 +43,7 @@ pub mod rsp {
     use crate::debug::rsp::arch_x86_64::X86_64Core;
     use crate::debug::rsp::core::RspServer;
     use crate::debug::rsp::memory::SectionMemory;
-    use crate::debug::rsp::transport::Com2Raw;
+    use crate::debug::rsp::transport::Com2Transport;
 
     /// Keep the same signature your ISRs call.
     #[inline(never)]
@@ -57,7 +57,7 @@ pub mod rsp {
             *active = true;
         }
         // Compose the generic server from zero-sized types (no heap).
-        let t = Com2Raw;
+        let t = Com2Transport;
         let a = X86_64Core;
         let m = SectionMemory;
 

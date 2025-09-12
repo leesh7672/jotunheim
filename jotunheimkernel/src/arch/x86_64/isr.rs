@@ -49,7 +49,7 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_df_rust(tf: *mut crate::arch::x86_64::context::TrapFrame) -> ! {
+pub extern "C" fn isr_df_rust() -> ! {
     kprintln!("[#DF] double fault");
     loop {
         hlt();

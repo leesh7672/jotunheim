@@ -70,7 +70,7 @@ pub fn insert(addr: u64) -> bool {
     let (orig, ok) = unsafe {
         let o = read_byte(addr);
         let mut good = true;
-        with_wp_disabled(|| unsafe { write_byte(addr, 0xCC) });
+        with_wp_disabled(|| write_byte(addr, 0xCC));
         if read_byte(addr) != 0xCC {
             good = false;
         }
@@ -140,9 +140,3 @@ pub fn on_resume_step(last_hit: Option<u64>) {
     *REPLANT_AFTER_STEP.lock() = last_hit;
 }
 
-// Call this early when you enter on #DB (single-step).
-pub fn on_single_step_enter() {
-    if let Some(addr) = REPLANT_AFTER_STEP.lock().take() {
-        let _ = insert(addr);
-    }
-}

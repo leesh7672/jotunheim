@@ -29,17 +29,6 @@ const HHDM_BASE: u64 = 0xffff_8880_0000_0000;
 #[global_allocator]
 static ALLOCATOR: uefi::allocator::Allocator = uefi::allocator::Allocator;
 
-/* ================================ Panic ================================== */
-
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    unsafe {
-        loop {
-            asm!("hlt");
-        }
-    }
-}
-
 /* =========================== Kernel-facing ABI =========================== */
 
 #[repr(C)]
@@ -631,11 +620,6 @@ fn main() -> Status {
         .map(|r| r.phys_start.saturating_add(r.len))
         .max()
         .unwrap_or(0);
-
-    let apic_top = 0xFEE0_0000u64 + 0x1000; // LAPIC page
-    let ioapic_top = 0xFEC0_0000u64 + 0x1000; // IOAPIC page
-    let safety_4g = 0x1_0000_0000u64; // 4 GiB headroom for early bring-up
-    let hhdm_cover_max = phys_max.max(apic_top).max(ioapic_top).max(safety_4g);
 
     let map_bytes = core::mem::size_of::<MemoryRegion>() * regions.len();
     let map_pages = (map_bytes + 0xFFF) / 0x1000;

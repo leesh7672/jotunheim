@@ -26,7 +26,6 @@ unsafe extern "C" {
 
 impl Memory for SectionMemory {
     fn can_read(&self, addr: usize, len: usize) -> bool {
-        unsafe {
             let (t0, t1) = (
                 addr_of!(__text_start) as usize,
                 addr_of!(__text_end) as usize,
@@ -45,9 +44,7 @@ impl Memory for SectionMemory {
                 || in_range(addr, len, d0, d1)
                 || in_range(addr, len, b0, b1)
         }
-    }
     fn can_write(&self, addr: usize, len: usize) -> bool {
-        unsafe {
             let (d0, d1) = (
                 addr_of!(__data_start) as usize,
                 addr_of!(__data_end) as usize,
@@ -55,5 +52,4 @@ impl Memory for SectionMemory {
             let (b0, b1) = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
             in_range(addr, len, d0, d1) || in_range(addr, len, b0, b1)
         }
-    }
 }

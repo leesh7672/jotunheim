@@ -4,7 +4,6 @@ use crate::arch::x86_64::{apic, gdt};
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
-use core::sync::atomic::AtomicBool;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -53,8 +52,6 @@ unsafe extern "C" {
     fn isr_bp_stub();
     fn isr_db_stub();
 }
-
-static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
 fn kernel_cs_u16() -> u16 {
     gdt::code_selector().0

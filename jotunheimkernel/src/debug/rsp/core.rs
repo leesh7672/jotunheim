@@ -194,7 +194,7 @@ impl RspServer {
         let tx = _tx; // move into closure scope (no &mut self)
 
         let (tid, pc) = (1u64, unsafe { (*tf).rip });
-        send_t_stop(&tx, 0x05, tid, pc, /*swbreak=*/ true);
+        send_t_stop(&tx, 0x05, tid, pc);
 
         loop {
             let len = recv_pkt_len(&tx);
@@ -449,7 +449,7 @@ impl RspServer {
     }
 }
 
-fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64, swbreak: bool) {
+fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
     // small stack buffer; no refs to statics
     let mut buf = [0u8; 96];
     let mut w = 0usize;

@@ -4,7 +4,6 @@ pub mod sched_simd;
 
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::AtomicBool;
 
 use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
@@ -61,13 +60,6 @@ pub struct RunQueue {
     need_resched: bool,
 }
 
-/* ---------------------- Static storage (no allocator) ------------------------- */
-
-// Backing storage for the tasks array. We initialize it exactly once under RQ_CELL.call_once().
-struct TaskBuf(UnsafeCell<MaybeUninit<[Option<Task>; MAX_TASKS]>>);
-// SAFETY: We only write to the buffer inside Once::call_once() and then expose a single
-// &'static mut [Option<Task>] slice. No aliasing mutable references are created afterwards.
-unsafe impl Sync for TaskBuf {}
 static RQ: Mutex<RunQueue> = Mutex::new(RunQueue {
     tasks: [Task {
         id: 0,
@@ -119,7 +111,6 @@ impl RunQueue {
                         return Some(i);
                     }
                 }
-                _ => (),
             }
         }
         if let Some(t0) = self.tasks.get(0) {
@@ -245,11 +236,9 @@ static mut PREEMPT_PACK: PreemptPack = PreemptPack {
     next_simd: core::ptr::null_mut(),
 };
 
-static DEFER_RESCHED: AtomicBool = AtomicBool::new(false);
-
 pub fn tick() -> *const PreemptPack {
     with_rq_locked(|rq| {
-        if let current = rq.current {
+        let current = rq.current;
             let t = &mut rq.tasks[current];
             if t.time_slice != u32::MAX && t.time_slice > 0 {
                 t.time_slice -= 1;
@@ -259,7 +248,6 @@ pub fn tick() -> *const PreemptPack {
                     rq.need_resched = true;
                 }
             }
-        }
     });
     let current = with_rq_locked(|rq| rq.current);
 

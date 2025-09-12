@@ -210,8 +210,3 @@ pub unsafe fn read_g(tf: *mut TrapFrame, payload: &[u8]) -> bool {
 
     true
 }
-
-/// Expose OUTBUF pointer so core can avoid static refs.
-pub unsafe fn outbuf_ptr(outbuf_addr: *mut u8) -> *mut u8 {
-    outbuf_addr
-}
