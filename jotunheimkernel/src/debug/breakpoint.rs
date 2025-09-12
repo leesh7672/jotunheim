@@ -139,4 +139,3 @@ pub fn on_resume_continue(last_hit: Option<u64>) {
 pub fn on_resume_step(last_hit: Option<u64>) {
     *REPLANT_AFTER_STEP.lock() = last_hit;
 }
-

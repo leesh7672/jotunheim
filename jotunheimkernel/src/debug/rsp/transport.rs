@@ -16,7 +16,7 @@ impl Transport for Com2Transport {
             thr.write(b);
         }
     }
-    
+
     fn getc_block(&self) -> u8 {
         unsafe {
             use x86_64::instructions::port::Port;

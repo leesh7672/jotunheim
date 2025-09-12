@@ -6,6 +6,7 @@ use spin::Mutex;
 pub mod breakpoint;
 
 pub use crate::arch::x86_64::context::TrapFrame;
+use crate::kprintln;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Outcome {
@@ -27,9 +28,11 @@ pub fn set_tf(tf: &mut TrapFrame) {
 }
 
 pub fn setup() {
+    kprintln!("[JOTUNHEIM] Wating a debugger.");
     unsafe {
         core::arch::asm!("int3");
     }
+    kprintln!("[JOTUNHEIM] Connected the debugger.");
 }
 
 pub mod rsp {
@@ -45,10 +48,7 @@ pub mod rsp {
     use crate::debug::rsp::memory::SectionMemory;
     use crate::debug::rsp::transport::Com2Transport;
 
-    /// Keep the same signature your ISRs call.
-    #[inline(never)]
     pub fn serve(tf: *mut TrapFrame) -> Outcome {
-        x86_64::instructions::interrupts::disable();
         {
             let mut active = ACTIVE.lock();
             if *active {
@@ -56,7 +56,7 @@ pub mod rsp {
             }
             *active = true;
         }
-        // Compose the generic server from zero-sized types (no heap).
+
         let t = Com2Transport;
         let a = X86_64Core;
         let m = SectionMemory;

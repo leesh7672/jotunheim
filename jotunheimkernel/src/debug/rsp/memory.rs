@@ -26,30 +26,30 @@ unsafe extern "C" {
 
 impl Memory for SectionMemory {
     fn can_read(&self, addr: usize, len: usize) -> bool {
-            let (t0, t1) = (
-                addr_of!(__text_start) as usize,
-                addr_of!(__text_end) as usize,
-            );
-            let (r0, r1) = (
-                addr_of!(__rodata_start) as usize,
-                addr_of!(__rodata_end) as usize,
-            );
-            let (d0, d1) = (
-                addr_of!(__data_start) as usize,
-                addr_of!(__data_end) as usize,
-            );
-            let (b0, b1) = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
-            in_range(addr, len, t0, t1)
-                || in_range(addr, len, r0, r1)
-                || in_range(addr, len, d0, d1)
-                || in_range(addr, len, b0, b1)
-        }
+        let (t0, t1) = (
+            addr_of!(__text_start) as usize,
+            addr_of!(__text_end) as usize,
+        );
+        let (r0, r1) = (
+            addr_of!(__rodata_start) as usize,
+            addr_of!(__rodata_end) as usize,
+        );
+        let (d0, d1) = (
+            addr_of!(__data_start) as usize,
+            addr_of!(__data_end) as usize,
+        );
+        let (b0, b1) = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
+        in_range(addr, len, t0, t1)
+            || in_range(addr, len, r0, r1)
+            || in_range(addr, len, d0, d1)
+            || in_range(addr, len, b0, b1)
+    }
     fn can_write(&self, addr: usize, len: usize) -> bool {
-            let (d0, d1) = (
-                addr_of!(__data_start) as usize,
-                addr_of!(__data_end) as usize,
-            );
-            let (b0, b1) = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
-            in_range(addr, len, d0, d1) || in_range(addr, len, b0, b1)
-        }
+        let (d0, d1) = (
+            addr_of!(__data_start) as usize,
+            addr_of!(__data_end) as usize,
+        );
+        let (b0, b1) = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
+        in_range(addr, len, d0, d1) || in_range(addr, len, b0, b1)
+    }
 }

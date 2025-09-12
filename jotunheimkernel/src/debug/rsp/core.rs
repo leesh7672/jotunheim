@@ -7,6 +7,8 @@ use spin::Mutex;
 use crate::debug::BKPT;
 use crate::debug::breakpoint;
 use crate::debug::{Outcome, TrapFrame, clear_tf, set_tf};
+use crate::kprint;
+use crate::kprintln;
 
 use super::arch_x86_64 as arch;
 use super::memory::Memory;
@@ -195,7 +197,6 @@ impl RspServer {
 
         let (tid, pc) = (1u64, unsafe { (*tf).rip });
         send_t_stop(&tx, 0x05, tid, pc);
-
         loop {
             let len = recv_pkt_len(&tx);
             if len == 0 {
@@ -450,8 +451,7 @@ impl RspServer {
 }
 
 fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
-    // small stack buffer; no refs to statics
-    let mut buf = [0u8; 96];
+    let mut buf = [0u8; 92];
     let mut w = 0usize;
 
     // "Txx"

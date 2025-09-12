@@ -3,6 +3,8 @@
 
 use core::arch::x86_64::{__cpuid, __cpuid_count, _xsetbv};
 
+use uefi::helpers::init;
+
 const CR0_EM: u64 = 1 << 2;
 const CR0_TS: u64 = 1 << 3;
 const CR0_MP: u64 = 1 << 1;

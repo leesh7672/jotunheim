@@ -12,6 +12,7 @@ pub mod tsc;
 use crate::kprintln;
 
 pub fn init() {
+    simd::init();
     gdt::init();
     kprintln!("[JOTUNHEIM] Loaded GDT.");
     idt::init();

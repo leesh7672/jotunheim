@@ -366,7 +366,6 @@ isr_timer_stub:
     sub     rsp, 8
     call    isr_timer_rust
     add     rsp, 8
-
     test    rax, rax
     jz      .no_preempt
     mov     rdi, rax

@@ -20,6 +20,10 @@ const XCR0_X87: u64 = 1 << 0;
 const XCR0_SSE: u64 = 1 << 1;
 const XCR0_YMM: u64 = 1 << 2; // AVX (YMM upper halves)
 
+extern "C" fn simd_init() {
+    init();
+}
+
 #[inline]
 fn rdcr0() -> u64 {
     let v;
@@ -69,8 +73,7 @@ pub fn probe() -> XSaveInfo {
     }
 }
 
-pub fn enable_sse_avx() -> (u64, usize) {
-    // --- CPUID feature discovery ---
+pub fn init() {
     let leaf1 = unsafe { __cpuid(1) };
     let ecx1 = leaf1.ecx;
 
@@ -123,8 +126,6 @@ pub fn enable_sse_avx() -> (u64, usize) {
     if size & 63 != 0 {
         size = (size + 63) & !63;
     }
-
-    (xcr0, size)
 }
 
 #[inline(always)]

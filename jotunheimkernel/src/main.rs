@@ -17,13 +17,13 @@ use x86_64::instructions::{
 
 use crate::arch::x86_64::{mmio_map, serial, simd};
 
-static mut MAIN_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
-const STACK_LEN: usize = 16 * 1024;
+static mut MAIN_STACK: [u8; 32 * 1024] = [0; 32 * 1024];
+const STACK_LEN: usize = 32 * 1024;
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start(boot: &BootInfo) -> ! {
-    simd::enable_sse_avx();
+    simd::init();
     without_interrupts(|| {
         unsafe {
             serial::init_com1(115_200);
@@ -35,11 +35,11 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         sched::init();
         kprintln!("[JOTUNHEIM] Prepared the scheduler.");
 
-        debug::setup();
-
         let boot_ptr = boot as *const BootInfo as usize;
         let main_stack_ptr = core::ptr::addr_of_mut!(MAIN_STACK) as *mut u8;
         sched::spawn_kthread(main_thread, boot_ptr, main_stack_ptr, STACK_LEN);
+
+        debug::setup();
     });
     interrupts::enable();
     loop {
@@ -48,6 +48,7 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
 }
 
 extern "C" fn main_thread(arg: usize) {
+    kprintln!("[JOTUNHEIM] Started the main thread.");
     let boot_ptr: *const _ = arg as *const BootInfo;
     let boot: BootInfo = unsafe { *(boot_ptr) };
     mem::init(&boot);

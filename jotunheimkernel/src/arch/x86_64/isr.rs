@@ -65,7 +65,6 @@ pub extern "C" fn isr_ud_rust() -> ! {
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_bp_rust(tf: *mut TrapFrame) {
     without_interrupts(|| {
-        kprintln!("[JOTUNHEIM] Debugging.");
         let last_hit = {
             let t = unsafe { &mut *tf };
             breakpoint::on_breakpoint_enter(&mut t.rip)

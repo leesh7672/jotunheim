@@ -2,6 +2,8 @@
 default rel
 section .text
 global kthread_trampoline
+
+extern simd_init
 extern sched_exit_current_trampoline
 
 ; Stack on entry (top -> high):

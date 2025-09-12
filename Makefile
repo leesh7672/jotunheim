@@ -66,7 +66,7 @@ image: distclean
 
 # ===== Run in QEMU =====
 .PHONY: run
-run: image
+run:
 	@echo "==> Launching QEMU"
 	$(QEMU) -machine $(QEMU_MACHINE) -m $(QEMU_MEM) -cpu max \
 		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \

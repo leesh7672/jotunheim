@@ -2,8 +2,10 @@
 
 pub mod sched_simd;
 
+use core::u32;
 
 use spin::Mutex;
+use x86_64::instructions::hlt;
 use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;
@@ -129,7 +131,7 @@ pub extern "C" fn sched_exit_current_trampoline() -> ! {
 
 extern "C" fn idle_main(_arg: usize) -> ! {
     loop {
-        yield_now();
+        hlt();
     }
 }
 
@@ -138,36 +140,27 @@ extern "C" fn idle_main(_arg: usize) -> ! {
 pub fn init() {
     static ONCE: spin::Once<()> = spin::Once::new();
     ONCE.call_once(|| {
-        with_rq(|rq| {
+        with_rq_locked(|rq| {
             let base = core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8;
             let top = ((base as usize + IDLE_STACK_SIZE) & !0xF) as u64;
             let init_rsp = (top - 16) as *mut u64;
-
+            let task = &mut rq.tasks[0];
             unsafe {
                 core::ptr::write(init_rsp.add(0), 0u64);
                 core::ptr::write(init_rsp.add(1), idle_main as u64);
             }
 
-            let context = CpuContext {
-                rip: kthread_trampoline as u64,
-                rsp: init_rsp as u64,
-                ..CpuContext::default()
-            };
+            task.id = rq.next_id;
+            task.state = TaskState::Running;
+            task.kstack_top = top;
 
-            kprintln!("X");
-            kprintln!("Y");
-            rq.tasks[0] = Task {
-                id: rq.next_id,
-                state: TaskState::Running,
-                ctx: context,
-                kstack_top: top,
-                simd: SimdArea {
-                    dump: [0; sched_simd::SIZE],
-                },
-                time_slice: u32::MAX,
-            };
-            kprintln!("Z");
-            kprintln!("W");
+            task.ctx.rip = kthread_trampoline as u64;
+            task.ctx.rsp = init_rsp as u64;
+
+            for i in 0..sched_simd::SIZE {
+                task.simd.dump[i] = 0;
+            }
+            task.time_slice = u32::MAX;
 
             rq.next_id += 1;
             rq.current = 0;
@@ -201,20 +194,22 @@ pub fn spawn_kthread(
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
-
         let idx = rq
             .tasks
             .iter()
             .position(|t| t.state == TaskState::Void)
             .expect("no slots");
-        rq.tasks[idx] = Task {
-            id,
-            state: TaskState::Ready,
-            ctx,
-            simd: sched_simd::SimdArea::default(),
-            kstack_top: top,
-            time_slice: DEFAULT_SLICE,
-        };
+
+        let task = &mut rq.tasks[idx];
+        task.id = id;
+        task.state = TaskState::Ready;
+        task.ctx = ctx;
+        task.kstack_top = top;
+        task.time_slice = DEFAULT_SLICE;
+
+        for i in 0..sched_simd::SIZE {
+            task.simd.dump[i] = 0;
+        }
         id
     })
 }
@@ -237,67 +232,62 @@ static mut PREEMPT_PACK: PreemptPack = PreemptPack {
 pub fn tick() -> *const PreemptPack {
     with_rq_locked(|rq| {
         let current = rq.current;
-            let t = &mut rq.tasks[current];
-            if t.time_slice != u32::MAX && t.time_slice > 0 {
-                t.time_slice -= 1;
-                if t.time_slice == 0 {
-                    t.state = TaskState::Ready;
-                    t.time_slice = DEFAULT_SLICE;
-                    rq.need_resched = true;
-                }
-            }
-    });
-    let current = with_rq_locked(|rq| rq.current);
-
-    let cur_is_idle = with_rq_locked(|rq| rq.tasks[current].time_slice == u32::MAX);
-
-    let some_ready = with_rq_locked(|rq| {
-        rq.tasks
-            .iter()
-            .enumerate()
-            .any(|(i, t)| i != current && t.state == TaskState::Ready)
-    });
-
-    if !(with_rq_locked(|rq| rq.need_resched) || (cur_is_idle && some_ready)) {
-        return core::ptr::null();
-    }
-
-    let Some(next) = with_rq_locked(|rq| rq.pick_next()) else {
-        with_rq_locked(|rq| rq.need_resched = false);
-        return core::ptr::null();
-    };
-
-    if next == current {
-        with_rq_locked(|rq| rq.need_resched = false);
-        return core::ptr::null();
-    }
-    with_rq_locked(|rq| {
         let t = &mut rq.tasks[current];
-        if t.time_slice != u32::MAX {
-            t.state = TaskState::Ready;
-            t.time_slice = DEFAULT_SLICE;
+        if t.time_slice != u32::MAX && t.time_slice > 0 {
+            t.time_slice -= 1;
+            if t.time_slice == 0 {
+                t.state = TaskState::Ready;
+                t.time_slice = DEFAULT_SLICE;
+                rq.need_resched = true;
+            }
         }
-    });
-    with_rq_locked(|rq| {
-        rq.tasks[next].state = TaskState::Running;
-        let (prev_ctx, prev_simd) = {
-            let prev = &mut rq.tasks[current];
-            (&mut prev.ctx as *mut CpuContext, prev.simd.as_mut_ptr())
-        };
-        let (next_ctx, next_simd) = {
-            let next = rq.tasks[next];
-            (&next.ctx as *const CpuContext, next.simd.as_mut_ptr())
+
+        let cur_is_idle = rq.tasks[current].time_slice == u32::MAX;
+
+        let some_ready = {
+            rq.tasks
+                .iter()
+                .enumerate()
+                .any(|(i, t)| i != current && t.state == TaskState::Ready)
         };
 
-        rq.current = next;
-        rq.need_resched = false;
+        if !(rq.need_resched || (cur_is_idle && some_ready)) {
+            return core::ptr::null();
+        } else {
+            let Some(next) = rq.pick_next() else {
+                rq.need_resched = false;
+                return core::ptr::null();
+            };
 
-        unsafe {
-            PREEMPT_PACK.prev_ctx = prev_ctx;
-            PREEMPT_PACK.next_ctx = next_ctx;
-            PREEMPT_PACK.prev_simd = prev_simd;
-            PREEMPT_PACK.next_simd = next_simd;
-            &raw const PREEMPT_PACK
+            if next == current {
+                rq.need_resched = false;
+                return core::ptr::null();
+            }
+            let t = &mut rq.tasks[current];
+            if t.time_slice != u32::MAX {
+                t.state = TaskState::Ready;
+                t.time_slice = DEFAULT_SLICE;
+            }
+            rq.tasks[next].state = TaskState::Running;
+            let (prev_ctx, prev_simd) = {
+                let prev = &mut rq.tasks[current];
+                (&mut prev.ctx as *mut CpuContext, prev.simd.as_mut_ptr())
+            };
+            let (next_ctx, next_simd) = {
+                let next = rq.tasks[next];
+                (&next.ctx as *const CpuContext, next.simd.as_mut_ptr())
+            };
+
+            rq.current = next;
+            rq.need_resched = false;
+
+            unsafe {
+                PREEMPT_PACK.prev_ctx = prev_ctx;
+                PREEMPT_PACK.next_ctx = next_ctx;
+                PREEMPT_PACK.prev_simd = prev_simd;
+                PREEMPT_PACK.next_simd = next_simd;
+                &raw const PREEMPT_PACK
+            }
         }
     })
 }
@@ -374,14 +364,9 @@ fn with_rq_locked<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RunQueue) -> R,
 {
-    without_interrupts(|| with_rq(f))
-}
-
-fn with_rq<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut RunQueue) -> R,
-{
-    let mut guard = RQ.lock();
-    let rq: &mut RunQueue = &mut *guard;
-    f(rq)
+    without_interrupts(|| {
+        let mut guard = RQ.lock();
+        let rq: &mut RunQueue = &mut *guard;
+        f(rq)
+    })
 }

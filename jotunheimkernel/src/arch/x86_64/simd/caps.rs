@@ -32,7 +32,12 @@ pub fn simd_ready() -> bool {
 }
 
 pub fn caps() -> &'static XSaveCaps {
-    CAPS.get().expect("SIMD caps not initialized")
+    if CAPS.is_completed() {
+        CAPS.get().unwrap()
+    } else {
+        enable_xsave_path();
+        CAPS.get().unwrap()
+    }
 }
 
 /* ------------------------------- CR helpers -------------------------------- */

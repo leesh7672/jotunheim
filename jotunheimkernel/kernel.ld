@@ -4,7 +4,7 @@ OUTPUT_ARCH(i386:x86-64)
 ENTRY(_start)
 
 /* Optional: make segment alignment explicit */
-MAXPAGESIZE = 0x200000;   /* 2 MiB */
+MAXPAGESIZE = 0x500000;   /* 500 MiB */
 
 PHDRS {
   text   PT_LOAD FLAGS(5); /* R + X */
