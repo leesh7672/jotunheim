@@ -2,8 +2,6 @@
 
 pub mod sched_simd;
 
-use core::cell::UnsafeCell;
-use core::mem::MaybeUninit;
 
 use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
