@@ -15,7 +15,7 @@ use x86_64::instructions::{
     interrupts::{self, without_interrupts},
 };
 
-use crate::arch::x86_64::{apic, mmio_map, serial, simd};
+use crate::arch::x86_64::{mmio_map, serial, simd};
 
 static mut MAIN_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
 const STACK_LEN: usize = 16 * 1024;

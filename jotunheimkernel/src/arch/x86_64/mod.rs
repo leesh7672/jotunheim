@@ -9,7 +9,7 @@ pub mod serial;
 pub mod simd;
 pub mod tsc;
 
-use crate::{debug, kprintln, sched};
+use crate::kprintln;
 
 pub fn init() {
     gdt::init();

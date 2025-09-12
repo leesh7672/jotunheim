@@ -3,11 +3,10 @@
 pub mod sched_simd;
 
 use core::cell::UnsafeCell;
-use core::fmt::DebugMap;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::AtomicBool;
 
-use spin::{Mutex, Once};
+use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;

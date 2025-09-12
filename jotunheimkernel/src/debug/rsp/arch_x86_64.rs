@@ -1,5 +1,4 @@
 use crate::debug::TrapFrame;
-use core::ptr::addr_of_mut;
 
 pub struct X86_64Core;
 

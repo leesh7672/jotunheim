@@ -1,6 +1,5 @@
 // src/debug/breakpoint.rs
 #![allow(unsafe_op_in_unsafe_fn)]
-use core::mem::MaybeUninit;
 use spin::Mutex;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 

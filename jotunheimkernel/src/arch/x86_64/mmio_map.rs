@@ -1,8 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::kprintln;
-use crate::mem::mapper::active_offset_mapper;
-use crate::mem::simple_alloc::TinyBump;
 
 use x86_64::VirtAddr;
 use x86_64::structures::paging::{Mapper, Page, PageTableFlags as F, Size2MiB};

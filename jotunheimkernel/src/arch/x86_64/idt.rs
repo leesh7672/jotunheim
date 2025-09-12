@@ -1,15 +1,10 @@
 #![allow(clippy::missing_safety_doc)]
 
-use crate::arch::x86_64::{apic, context, gdt, simd};
-use crate::debug::{Outcome, TrapFrame, breakpoint, rsp};
-use crate::sched::PreemptPack;
-use crate::serial;
-use crate::{debug, kprintln, sched};
+use crate::arch::x86_64::{apic, gdt};
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
-use core::sync::atomic::{AtomicBool, Ordering};
-use x86_64::instructions::hlt;
+use core::sync::atomic::AtomicBool;
 
 #[repr(C)]
 #[derive(Copy, Clone)]

@@ -1,10 +1,5 @@
-use crate::kprintln;
 
-use x86_64::{
-    VirtAddr,
-    registers::control::Cr3,
-    structures::paging::{OffsetPageTable, PageTable},
-};
+use x86_64::structures::paging::{OffsetPageTable, PageTable};
 
 #[inline(always)]
 fn is_page_aligned(x: u64) -> bool {

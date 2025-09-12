@@ -3,8 +3,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use x86_64::instructions::hlt;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::arch::x86_64::{apic, context, gdt, simd};
-use crate::debug::{Outcome, TrapFrame, breakpoint, rsp};
+use crate::arch::x86_64::{apic, context, simd};
+use crate::debug::{Outcome, TrapFrame, breakpoint};
 use crate::sched::PreemptPack;
 use crate::{debug, kprintln, sched, serial};
 
