@@ -1,24 +1,21 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::identity_op)]
 
-use core::ptr::addr_of_mut;
-use spin::Mutex;
-
-use crate::debug::BKPT;
-use crate::debug::breakpoint;
-use crate::debug::{Outcome, TrapFrame, clear_tf, set_tf};
-use crate::kprint;
-use crate::kprintln;
+use core::ptr::{addr_of_mut, copy_nonoverlapping};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::arch_x86_64 as arch;
 use super::memory::Memory;
 use super::transport::Transport;
 
-// ---- Buffers (no &/&mut to statics; use raw ptrs) ---------------------------
+use crate::debug::{BKPT, Outcome, TrapFrame, breakpoint, clear_tf, set_tf};
+use crate::kprintln;
 
-const INBUF_LEN: usize = 1024;
-const OUTBUF_LEN: usize = 1024;
-const TMP_LEN: usize = 512;
+// ─────────────────────────── Buffers (all in .bss) ───────────────────────────
+
+const INBUF_LEN: usize = 0x2000;
+const OUTBUF_LEN: usize = 0x2000;
+const TMP_LEN: usize = 0x200;
 
 #[unsafe(link_section = ".bss")]
 static mut INBUF: [u8; INBUF_LEN] = [0; INBUF_LEN];
@@ -27,15 +24,16 @@ static mut OUTBUF: [u8; OUTBUF_LEN] = [0; OUTBUF_LEN];
 #[unsafe(link_section = ".bss")]
 static mut TMP: [u8; TMP_LEN] = [0; TMP_LEN];
 
-/// RSP "no-ack" mode flag (QStartNoAckMode). No atomics (toolchain friendly).
-static NO_ACK: Mutex<bool> = Mutex::new(false);
+/// RSP "no-ack" mode flag (QStartNoAckMode). Atomic so it’s irq-friendly.
+static NO_ACK: AtomicBool = AtomicBool::new(false);
 
-// ---- Small helpers ----------------------------------------------------------
+// ───────────────────────────── Small helpers ─────────────────────────────────
 
 #[inline]
 fn hex4(n: u8) -> u8 {
     if n < 10 { b'0' + n } else { b'a' + (n - 10) }
 }
+
 #[inline]
 fn from_hex(h: u8) -> Option<u8> {
     match h {
@@ -46,7 +44,8 @@ fn from_hex(h: u8) -> Option<u8> {
     }
 }
 
-// Parse hex usize starting at off, up to `total` bytes in INBUF. Returns (val, used_len).
+/// Parse hex usize starting at `off`, up to `total` bytes in INBUF.
+/// Returns (val, used_len).
 #[inline]
 fn parse_hex_usize(off: usize, total: usize) -> Option<(usize, usize)> {
     let mut n = 0usize;
@@ -63,7 +62,7 @@ fn parse_hex_usize(off: usize, total: usize) -> Option<(usize, usize)> {
     if i == 0 { None } else { Some((n, i)) }
 }
 
-// "addr,len" pair; returns (addr, len, bytes_consumed)
+/// Parse "addr,len" pair; returns (addr, len, bytes_consumed)
 #[inline]
 fn parse_addr_len(off: usize, total: usize) -> Option<(usize, usize, usize)> {
     let (addr, ua) = parse_hex_usize(off, total)?;
@@ -89,7 +88,26 @@ fn starts_with(off: usize, total: usize, pat: &[u8]) -> bool {
     true
 }
 
-// ---- Packet I/O -------------------------------------------------------------
+#[inline]
+fn write_hex_u64_into(out: &mut [u8], mut v: u64) -> usize {
+    if v == 0 {
+        out[0] = b'0';
+        return 1;
+    }
+    let mut tmp = [0u8; 16];
+    let mut n = 0usize;
+    while v != 0 {
+        tmp[n] = hex4((v & 0xF) as u8);
+        n += 1;
+        v >>= 4;
+    }
+    for i in 0..n {
+        out[i] = tmp[n - 1 - i];
+    }
+    n
+}
+
+// ─────────────────────────── Packet I/O helpers ──────────────────────────────
 
 #[inline]
 fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {
@@ -118,13 +136,13 @@ unsafe fn send_pkt_raw<T: Transport>(tx: &T, ptr: *const u8, len: usize) {
     tx.putc(hex4(cks & 0xF));
 }
 
-/// Receive a full packet into INBUF, returns payload len (no '$', no '#xx').
+/// Receive a full packet into INBUF, return payload len (no '$' nor '#xx').
 /// Handles ack/nack according to NO_ACK. CTRL-C (0x03) returns len=1 with INBUF[0]=0x03.
 fn recv_pkt_len<T: Transport>(tx: &T) -> usize {
     loop {
         let mut c = tx.getc_block();
 
-        // Ignore stray + / - from the other side (harmless)
+        // Ignore stray acks from peer
         if c == b'+' || c == b'-' {
             continue;
         }
@@ -150,7 +168,8 @@ fn recv_pkt_len<T: Transport>(tx: &T) -> usize {
             if c == b'#' {
                 break;
             }
-            if len + 1 < INBUF_LEN {
+            // keep one spare byte for safety; we never NUL-terminate, so <= ok too
+            if len < INBUF_LEN {
                 unsafe {
                     INBUF[len] = c;
                 }
@@ -162,9 +181,9 @@ fn recv_pkt_len<T: Transport>(tx: &T) -> usize {
         let h1 = tx.getc_block();
         let h2 = tx.getc_block();
 
+        let no_ack = NO_ACK.load(Ordering::Relaxed);
         if let (Some(a), Some(b)) = (from_hex(h1), from_hex(h2)) {
             let ok = ((a << 4) | b) == cks;
-            let no_ack = *NO_ACK.lock();
             if !no_ack {
                 tx.putc(if ok { b'+' } else { b'-' });
             }
@@ -172,14 +191,14 @@ fn recv_pkt_len<T: Transport>(tx: &T) -> usize {
                 return len;
             }
         } else {
-            if !*NO_ACK.lock() {
+            if !no_ack {
                 tx.putc(b'-');
             }
         }
     }
 }
 
-// ---- Server core ------------------------------------------------------------
+// ───────────────────────────── Server core ───────────────────────────────────
 
 pub struct RspServer;
 
@@ -193,10 +212,12 @@ impl RspServer {
         m: M,
         tf: *mut TrapFrame,
     ) -> Outcome {
-        let tx = _tx; // move into closure scope (no &mut self)
+        let tx = _tx; // by value, no &mut self
 
+        // Initial stop (SIGTRAP)
         let (tid, pc) = (1u64, unsafe { (*tf).rip });
         send_t_stop(&tx, 0x05, tid, pc);
+
         loop {
             let len = recv_pkt_len(&tx);
             if len == 0 {
@@ -207,34 +228,28 @@ impl RspServer {
             let b0 = unsafe { INBUF[0] };
 
             match b0 {
-                // "Why did you stop?" — say SIGTRAP (05)
+                // "Why did you stop?"
                 b'?' => send_pkt(&tx, b"S05"),
 
-                // Set thread (we only expose one)
+                // Set thread — single-thread model
                 b'H' => send_pkt(&tx, b"OK"),
 
                 // Queries
                 b'q' => {
                     if starts_with(0, len, b"qSupported") {
-                        // keep it minimal; DO NOT advertise qXfer if you don't serve it
-                        send_pkt(&tx, b"PacketSize=500;QStartNoAckMode+");
+                        // PacketSize is HEX per RSP (no 0x prefix). Keep features minimal.
+                        send_pkt(&tx, b"PacketSize=4000;QStartNoAckMode+");
                     } else if starts_with(0, len, b"qAttached") {
-                        send_pkt(&tx, b"1"); // we’re attached to a live target
+                        send_pkt(&tx, b"1"); // attached to a live target
                     } else if starts_with(0, len, b"qfThreadInfo") {
-                        // first chunk of thread ids: "m<hex-id>[,<hex-id>...]"
-                        // single-thread model => just one
-                        send_pkt(&tx, b"m1");
+                        send_pkt(&tx, b"m1"); // first chunk: one thread id (1)
                     } else if starts_with(0, len, b"qsThreadInfo") {
-                        // end of list
-                        send_pkt(&tx, b"l");
+                        send_pkt(&tx, b"l"); // end of list
                     } else if starts_with(0, len, b"qC") {
-                        // current thread id
-                        send_pkt(&tx, b"QC1");
+                        send_pkt(&tx, b"QC1"); // current thread id
                     } else if starts_with(0, len, b"qTStatus") {
-                        // not tracing; empty = "unsupported"
-                        send_pkt(&tx, b"");
+                        send_pkt(&tx, b""); // not tracing
                     } else if starts_with(0, len, b"vCont?") {
-                        // advertise continue/single-step
                         send_pkt(&tx, b"vCont;c;s");
                     } else {
                         send_pkt(&tx, b"");
@@ -244,7 +259,7 @@ impl RspServer {
                 // Set options
                 b'Q' => {
                     if starts_with(0, len, b"QStartNoAckMode") {
-                        *NO_ACK.lock() = true;
+                        NO_ACK.store(true, Ordering::Relaxed);
                         send_pkt(&tx, b"OK");
                     } else {
                         send_pkt(&tx, b"");
@@ -253,53 +268,42 @@ impl RspServer {
 
                 // Read all registers
                 b'g' => unsafe {
-                    let out = core::ptr::addr_of_mut!(OUTBUF) as *mut u8;
+                    let out = addr_of_mut!(OUTBUF) as *mut u8;
                     let _written = arch::write_g(out, tf as *const TrapFrame);
-                    // Always send exactly the amount we advertised in target.xml
+                    // Always send exactly what target.xml advertises
                     send_pkt_raw(&tx, out as *const u8, arch::G_HEX_LEN);
                 },
 
                 // Write all registers
                 b'G' => {
-                    // length of hex payload after the 'G'
                     let pay_len = len.saturating_sub(1);
-
-                    // must exactly match what target.xml advertises
                     if pay_len != arch::G_HEX_LEN {
                         send_pkt(&tx, b"E00");
                         continue;
                     }
 
-                    // stack buffer to avoid taking a reference to static mut INBUF
                     let mut local: [u8; arch::G_HEX_LEN] = [0; arch::G_HEX_LEN];
-
                     unsafe {
-                        // raw pointer to INBUF (no & to static mut)
-                        let src = (core::ptr::addr_of_mut!(INBUF) as *const u8).add(1);
-                        core::ptr::copy_nonoverlapping(src, local.as_mut_ptr(), pay_len);
+                        // copy after 'G'
+                        let src = (addr_of_mut!(INBUF) as *const u8).add(1);
+                        copy_nonoverlapping(src, local.as_mut_ptr(), pay_len);
                     }
 
-                    // pass a slice to arch::read_G
                     let ok = unsafe { arch::read_g(tf, &local[..pay_len]) };
-                    if ok {
-                        send_pkt(&tx, b"OK");
-                    } else {
-                        send_pkt(&tx, b"E00");
-                    }
+                    send_pkt(&tx, if ok { b"OK" } else { b"E00" });
                 }
 
                 // Read memory: mADDR,LEN
                 b'm' => {
                     if let Some((addr, rlen, _used)) = parse_addr_len(1, len) {
-                        let max_len = OUTBUF_LEN / 2;
+                        let max_len = OUTBUF_LEN / 2; // hex expansion
                         let mut allowed = rlen != 0 && rlen <= max_len && m.can_read(addr, rlen);
 
-                        // Also allow a window around the *current* stack pointer so GDB can backtrace.
-                        // (saturating math avoids underflow on very small addresses)
+                        // Allow small window around current RSP to help backtraces even if not mapped in policy
                         if !allowed {
                             let tf_ref = unsafe { &*tf };
                             let rsp = tf_ref.rsp as usize;
-                            let win_lo = rsp.saturating_sub(128 * 1024); // 128 KiB below RSP
+                            let win_lo = rsp.saturating_sub(128 * 1024);
                             let win_hi = rsp.saturating_add(128 * 1024);
                             let end = addr.saturating_add(rlen);
                             if addr >= win_lo && end <= win_hi {
@@ -314,7 +318,7 @@ impl RspServer {
 
                         unsafe {
                             let src = addr as *const u8;
-                            let out = core::ptr::addr_of_mut!(OUTBUF) as *mut u8;
+                            let out = addr_of_mut!(OUTBUF) as *mut u8;
                             let mut w = 0usize;
                             for i in 0..rlen {
                                 let v = src.add(i).read(); // will fault if truly unmapped
@@ -328,27 +332,11 @@ impl RspServer {
                         send_pkt(&tx, b"E00");
                     }
                 }
-                // Z0 = software breakpoint; z0 = remove
-                b'Z' if starts_with(0, len, b"Z0,") => {
-                    if let Some((addr, _used)) = parse_hex_usize(3, len) {
-                        let ok = breakpoint::insert(addr as u64);
-                        send_pkt(&tx, if ok { b"OK" } else { b"E01" });
-                    } else {
-                        send_pkt(&tx, b"E00");
-                    }
-                }
-                b'z' if starts_with(0, len, b"z0,") => {
-                    if let Some((addr, _used)) = parse_hex_usize(3, len) {
-                        let ok = breakpoint::remove(addr as u64);
-                        send_pkt(&tx, if ok { b"OK" } else { b"E01" });
-                    } else {
-                        send_pkt(&tx, b"E00");
-                    }
-                }
 
                 // Write memory: MADDR,LEN:HEX...
                 b'M' => {
                     if let Some((addr, wlen, used)) = parse_addr_len(1, len) {
+                        // Require colon
                         if 1 + used >= len || unsafe { INBUF[1 + used] } != b':' {
                             send_pkt(&tx, b"E00");
                             continue;
@@ -357,12 +345,14 @@ impl RspServer {
                             send_pkt(&tx, b"E01");
                             continue;
                         }
+
                         let hex_off = 1 + used + 1;
                         let hex_len = len - hex_off;
                         if hex_len != wlen * 2 {
                             send_pkt(&tx, b"E00");
                             continue;
                         }
+
                         unsafe {
                             let tmp = addr_of_mut!(TMP) as *mut u8;
                             for i in 0..wlen {
@@ -376,9 +366,27 @@ impl RspServer {
                                     }
                                 }
                             }
-                            core::ptr::copy_nonoverlapping(tmp as *const u8, addr as *mut u8, wlen);
+                            copy_nonoverlapping(tmp as *const u8, addr as *mut u8, wlen);
                         }
                         send_pkt(&tx, b"OK");
+                    } else {
+                        send_pkt(&tx, b"E00");
+                    }
+                }
+
+                // SW breakpoints: Z0/z0
+                b'Z' if starts_with(0, len, b"Z0,") => {
+                    if let Some((addr, _used)) = parse_hex_usize(3, len) {
+                        let ok = breakpoint::insert(addr as u64);
+                        send_pkt(&tx, if ok { b"OK" } else { b"E01" });
+                    } else {
+                        send_pkt(&tx, b"E00");
+                    }
+                }
+                b'z' if starts_with(0, len, b"z0,") => {
+                    if let Some((addr, _used)) = parse_hex_usize(3, len) {
+                        let ok = breakpoint::remove(addr as u64);
+                        send_pkt(&tx, if ok { b"OK" } else { b"E01" });
                     } else {
                         send_pkt(&tx, b"E00");
                     }
@@ -411,7 +419,7 @@ impl RspServer {
                     return Outcome::SingleStep;
                 }
 
-                // legacy c/s
+                // Legacy c/s
                 b'c' => {
                     unsafe {
                         clear_tf(&mut *tf);
@@ -435,78 +443,78 @@ impl RspServer {
                     return Outcome::SingleStep;
                 }
 
-                // kill
+                // Kill
                 b'k' => return Outcome::KillTask,
 
-                // async break (Ctrl-C)
+                // Async break while stopped
                 0x03 => {
+                    // Report SIGINT; remain in command loop (already stopped)
                     send_pkt(&tx, b"S02");
                 }
 
-                // default: empty response
+                // Default: empty
                 _ => send_pkt(&tx, b""),
             }
         }
     }
 }
 
+// ─────────────────────────── Stop-reply builder ──────────────────────────────
+#[inline]
 fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
-    let mut buf = [0u8; 92];
-    let mut w = 0usize;
+    // Stream the payload (no stack buffer, no memcpy) and compute checksum.
+    // Payload: b"T" + hex(sig,2) + b";thread:" + hex(tid) + b";pc:" + hex(pc) + b";"
+    let mut cks: u8 = 0;
+
+    // open
+    tx.putc(b'$');
 
     // "Txx"
-    buf[w] = b'T';
-    w += 1;
-    buf[w] = hex4((sig >> 4) & 0xF);
-    w += 1;
-    buf[w] = hex4(sig & 0xF);
-    w += 1;
+    let write_byte = |tx: &T, cks: &mut u8, b: u8| { tx.putc(b); *cks = cks.wrapping_add(b); };
+    write_byte(tx, &mut cks, b'T');
+    write_byte(tx, &mut cks, hex4((sig >> 4) & 0xF));
+    write_byte(tx, &mut cks, hex4(sig & 0xF));
 
-    // "thread:<hex>;"
-    buf[w..w + 7].copy_from_slice(b"thread:");
-    w += 7;
-    // write hex(tid)
+    // ";thread:"
+    write_byte(tx, &mut cks, b';');
+    for &b in b"thread:" {
+        write_byte(tx, &mut cks, b);
+    }
+    // hex(tid)
+    write_hex_u64_stream(tx, &mut cks, tid);
+
+    // ";pc:"
+    write_byte(tx, &mut cks, b';');
+    for &b in b"pc:" {
+        write_byte(tx, &mut cks, b);
+    }
+    // hex(pc)
+    write_hex_u64_stream(tx, &mut cks, pc);
+
+    // ";"
+    write_byte(tx, &mut cks, b';');
+
+    // trailer
+    tx.putc(b'#');
+    tx.putc(hex4((cks >> 4) & 0xF));
+    tx.putc(hex4(cks & 0xF));
+}
+
+#[inline]
+fn write_hex_u64_stream<T: Transport>(tx: &T, cks: &mut u8, mut v: u64) {
+    // write without leading zeros; "0" if zero
+    if v == 0 {
+        tx.putc(b'0'); *cks = cks.wrapping_add(b'0'); return;
+    }
+    // collect nybbles reversed, then emit
     let mut tmp = [0u8; 16];
-    let mut i = 0;
-    let mut t = tid;
-    if t == 0 {
-        tmp[i] = b'0';
-        i += 1;
+    let mut n = 0usize;
+    while v != 0 {
+        tmp[n] = hex4((v & 0xF) as u8);
+        n += 1; v >>= 4;
     }
-    while t != 0 {
-        tmp[i] = hex4((t & 0xF) as u8);
-        i += 1;
-        t >>= 4;
+    for i in (0..n).rev() {
+        tx.putc(tmp[i]);
+        *cks = cks.wrapping_add(tmp[i]);
     }
-    // reverse
-    for k in (0..i).rev() {
-        buf[w] = tmp[k];
-        w += 1;
-    }
-    buf[w] = b';';
-    w += 1;
-
-    // "pc:<hex>;"
-    buf[w..w + 3].copy_from_slice(b"pc:");
-    w += 3;
-    let mut tmp2 = [0u8; 16];
-    let mut j = 0;
-    let mut p = pc;
-    if p == 0 {
-        tmp2[j] = b'0';
-        j += 1;
-    }
-    while p != 0 {
-        tmp2[j] = hex4((p & 0xF) as u8);
-        j += 1;
-        p >>= 4;
-    }
-    for k in (0..j).rev() {
-        buf[w] = tmp2[k];
-        w += 1;
-    }
-    buf[w] = b';';
-    w += 1;
-
-    send_pkt(tx, &buf[..w]);
 }
