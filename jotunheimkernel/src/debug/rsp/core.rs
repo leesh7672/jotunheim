@@ -470,7 +470,10 @@ fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
     tx.putc(b'$');
 
     // "Txx"
-    let write_byte = |tx: &T, cks: &mut u8, b: u8| { tx.putc(b); *cks = cks.wrapping_add(b); };
+    let write_byte = |tx: &T, cks: &mut u8, b: u8| {
+        tx.putc(b);
+        *cks = cks.wrapping_add(b);
+    };
     write_byte(tx, &mut cks, b'T');
     write_byte(tx, &mut cks, hex4((sig >> 4) & 0xF));
     write_byte(tx, &mut cks, hex4(sig & 0xF));
@@ -504,14 +507,17 @@ fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
 fn write_hex_u64_stream<T: Transport>(tx: &T, cks: &mut u8, mut v: u64) {
     // write without leading zeros; "0" if zero
     if v == 0 {
-        tx.putc(b'0'); *cks = cks.wrapping_add(b'0'); return;
+        tx.putc(b'0');
+        *cks = cks.wrapping_add(b'0');
+        return;
     }
     // collect nybbles reversed, then emit
     let mut tmp = [0u8; 16];
     let mut n = 0usize;
     while v != 0 {
         tmp[n] = hex4((v & 0xF) as u8);
-        n += 1; v >>= 4;
+        n += 1;
+        v >>= 4;
     }
     for i in (0..n).rev() {
         tx.putc(tmp[i]);
