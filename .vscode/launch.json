@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Jotunheim Kernel (gdb native)",
+      "name": "Jotunheim Kernel",
       "type": "gdb",
       "request": "attach",
       "remote": true,
