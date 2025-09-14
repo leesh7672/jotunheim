@@ -53,7 +53,7 @@ extern "C" fn main_thread(arg: usize) -> ! {
     mem::init(&boot);
     mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
     mem::init_heap();
-    kprintln!("[JOTUNHEIM] The Main thread is working.");
+    kprintln!("[JOTUNHEIM] Enabled the memory management.");
     exit_current();
 }
 
