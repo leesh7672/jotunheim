@@ -2,25 +2,17 @@ pub mod mapper;
 pub mod simple_alloc;
 
 extern crate alloc;
+use alloc::alloc::alloc_zeroed;
 use core::alloc::Layout;
-use alloc::alloc::{alloc_zeroed};
 
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, MutexGuard};
 use x86_64::{
-    PhysAddr, VirtAddr,
     structures::paging::{
-        FrameAllocator,
-        Mapper,
-        OffsetPageTable,
-        Page,
-        PageSize,
-        PageTable,
-        PageTableFlags,
-        PhysFrame,
-        Size4KiB,
-        mapper::MapperFlush, // correct path
+        mapper::MapperFlush, FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable,
+        PageTableFlags, PhysFrame, Size4KiB,
     },
+    PhysAddr, VirtAddr,
 };
 
 use crate::bootinfo::BootInfo;
@@ -103,8 +95,6 @@ pub fn init(boot: &BootInfo) {
     *FRAME_ALLOC.lock() = Some(simple_alloc::TinyBump::new(start, end));
 
     let _ = active_mapper();
-
-    kprintln!("[mem] HHDM offset = {:#x}", unsafe { PHYS_TO_VIRT_OFFSET });
 }
 
 fn active_mapper() -> OffsetPageTable<'static> {
@@ -202,7 +192,9 @@ pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
     // 1) Reserve a contiguous VA range from the heap (already 4K-mapped).
     let layout = Layout::from_size_align(bytes, PAGE_SIZE).ok()?;
     let va_base = unsafe { alloc_zeroed(layout) } as *mut u8;
-    if va_base.is_null() { return None; }
+    if va_base.is_null() {
+        return None;
+    }
 
     // 2) Map fresh frames to that VA range.
     let mut mapper = active_mapper();
@@ -213,8 +205,8 @@ pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
         let pf = fa.allocate_frame()?;
         map_4k(
             &mut mapper,
-            va_base as u64 + off as u64,       // <-- KHEAP VA
-            pf.start_address().as_u64(),       // <-- backing PFN
+            va_base as u64 + off as u64, // <-- KHEAP VA
+            pf.start_address().as_u64(), // <-- backing PFN
             PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL,
             &mut fa,
         );
@@ -223,8 +215,6 @@ pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
 
     Some(va_base)
 }
-
-
 
 pub fn phys_to_virt(pa: u64) -> u64 {
     pa + unsafe { PHYS_TO_VIRT_OFFSET }

@@ -9,7 +9,6 @@ use super::memory::Memory;
 use super::transport::Transport;
 
 use crate::debug::{BKPT, Outcome, TrapFrame, breakpoint, clear_tf, set_tf};
-use crate::kprintln;
 
 // ─────────────────────────── Buffers (all in .bss) ───────────────────────────
 

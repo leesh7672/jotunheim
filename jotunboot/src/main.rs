@@ -640,7 +640,7 @@ fn main() -> Status {
     slog!("[serial] bootinfo   = 0x{:x}", bi_page.as_ptr() as u64);
     slog!("[serial] stack_top  = 0x{:x}", stack_top_aligned);
 
-    const EARLY_HEAP_PAGES: usize = 512;
+    const EARLY_HEAP_PAGES: usize = 0x4000;
     let early_heap = boot::allocate_pages(
         AllocateType::AnyPages,
         MemoryType::LOADER_DATA,
