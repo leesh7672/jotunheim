@@ -1,6 +1,8 @@
 // src/arch/x86_64/context.rs
 #![allow(dead_code)]
 
+use crate::kprintln;
+
 #[repr(C)]
 pub struct TrapFrame {
     pub r15: u64,

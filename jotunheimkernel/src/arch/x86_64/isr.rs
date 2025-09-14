@@ -1,12 +1,10 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use x86_64::instructions::hlt;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::arch::x86_64::{apic, context, simd};
 use crate::debug::{Outcome, TrapFrame, breakpoint};
-use crate::sched::PreemptPack;
-use crate::{debug, kprintln, sched, serial};
+use crate::{debug, kprintln, sched};
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
@@ -49,11 +47,23 @@ pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_df_rust() -> ! {
-    kprintln!("[#DF] double fault");
-    loop {
-        hlt();
-    }
+pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
+    without_interrupts(|| {
+        let last_hit = {
+            let t = unsafe { &mut *tf };
+            breakpoint::on_breakpoint_enter(&mut t.rip)
+        };
+
+        match debug::rsp::serve(tf) {
+            Outcome::Continue => {
+                breakpoint::on_resume_continue(last_hit);
+            }
+            Outcome::SingleStep => {
+                breakpoint::on_resume_step(last_hit);
+            }
+            Outcome::KillTask => crate::sched::exit_current(),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -88,7 +98,6 @@ pub extern "C" fn isr_bp_rust(tf: *mut TrapFrame) {
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
     without_interrupts(|| {
-        kprintln!("[JOTUNHEIM] Debugging.");
         let last_hit = {
             let t = unsafe { &mut *tf };
             breakpoint::on_breakpoint_enter(&mut t.rip)
@@ -111,28 +120,7 @@ pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
 
 #[unsafe(no_mangle)]
 
-pub extern "C" fn isr_timer_rust(hbase: u64) -> *const PreemptPack {
+pub extern "C" fn isr_timer_rust() {
     apic::timer_isr_eoi_and_rearm_deadline();
-    if let Some(b) = serial::com2_getc_nb() {
-        if b == 0x03 {
-            let rip = unsafe { *(hbase as *const u64) };
-            let _ = breakpoint::insert(rip);
-            return core::ptr::null();
-        } else {
-            sched::tick()
-        }
-    } else {
-        sched::tick()
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn preempt(pack: *const PreemptPack) {
-    unsafe {
-        let p = &*pack;
-        if !p.prev_simd.is_null() {
-            simd::save(p.prev_simd);
-        }
-        context::switch(p.prev_ctx, p.next_ctx);
-    }
+    sched::tick()
 }

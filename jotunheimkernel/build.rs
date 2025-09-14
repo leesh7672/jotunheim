@@ -5,6 +5,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=asm/x86_64/isr_stubs.asm");
     println!("cargo:rerun-if-changed=asm/x86_64/context_switch.asm");
+    println!("cargo:rerun-if-changed=asm/x86_64/kthread-trampoline.asm");
 
     let target = env::var("TARGET").unwrap_or_default();
     if !target.starts_with("x86_64-") {

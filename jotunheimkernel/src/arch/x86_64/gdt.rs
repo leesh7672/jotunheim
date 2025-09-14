@@ -25,7 +25,7 @@ static GDT: Once<GlobalDescriptorTable> = Once::new();
 static SELECTORS: Once<Selectors> = Once::new();
 static TSS: Once<TaskStateSegment> = Once::new();
 
-const STACK_SIZE: usize = 1024 * 1024;
+const STACK_SIZE: usize = 8 * 1024;
 
 const RSP0_STACK_LEN: usize = STACK_SIZE;
 const DF_STACK_LEN: usize = STACK_SIZE;

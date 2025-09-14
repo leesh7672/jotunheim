@@ -9,7 +9,7 @@ pub mod serial;
 pub mod simd;
 pub mod tsc;
 
-use crate::kprintln;
+use crate::{kprintln, sched};
 
 pub fn init() {
     simd::init();

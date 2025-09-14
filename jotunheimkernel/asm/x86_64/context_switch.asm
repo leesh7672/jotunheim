@@ -48,6 +48,7 @@ __ctx_switch:
     mov     rax, [rax+0x70]         ; restore RAX last
     push    r10
     popfq
+    sti
     jmp     rdx
 
 .ret_here:

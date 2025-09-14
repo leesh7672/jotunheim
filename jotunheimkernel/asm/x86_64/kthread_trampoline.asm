@@ -1,20 +1,15 @@
-[bits 64]
-default rel
-section .text
-global kthread_trampoline
-
-extern simd_init
+; kthread_trampoline:
+; Stack layout expected at first run (top of stack):
+;   [0] = arg
+;   [1] = entry fn pointer
+; RSP -> [arg][entry]
 extern sched_exit_current_trampoline
-
-; Stack on entry (top -> high):
-;   [rsp + 0x00] = arg (usize)
-;   [rsp + 0x08] = entry (extern "C" fn(usize) -> !)
-
+global kthread_trampoline
 kthread_trampoline:
-    pop rdi            ; arg
-    pop rax            ; entry fn ptr
-    sub rsp, 8         ; ensure RSP%16 == 8 before CALL (so callee sees 16)
+    pop rdi            ; rdi = arg
+    pop rax            ; rax = entry
+    sub rsp, 8         ; keep 16-byte alignment before CALL
     sti
-    call rax           ; entry(rdi) -> !
-    add rsp, 8         ; (won’t run if entry is noreturn)
+    call rax           ; entry(arg) -> !
+    add  rsp, 8        ; (won’t run if entry is noreturn)
     jmp  sched_exit_current_trampoline

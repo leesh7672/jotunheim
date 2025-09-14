@@ -320,92 +320,72 @@ fn map_4k_offset(pml4: *mut u64, start_va: u64, end_va: u64, delta: i128) -> Res
 fn map_4k_ident(pml4: *mut u64, start_va: u64, end_va: u64) -> Result<(), ()> {
     map_4k_offset(pml4, start_va, end_va, 0)
 }
-
-unsafe fn map_2mib_page(pml4: *mut u64, va: u64, phys: u64) -> Result<(), ()> {
+// Replace your map_4kib_page with a real 4KiB PTE writer.
+unsafe fn map_4kib_page(pml4: *mut u64, va: u64, phys: u64) -> Result<(), ()> {
     let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
-    let pd = ensure_pd(pdpt, pdpt_index(va))?;
-    if *pd.add(pd_index(va)) & PTE_P == 0 {
-        *pd.add(pd_index(va)) = align_down(phys, 2 * 1024 * 1024) | PTE_P | PTE_RW | PTE_PS;
+    let pd   = ensure_pd(pdpt, pdpt_index(va))?;
+    let pt   = ensure_pt(pd,  pd_index(va))?;
+
+    let pte = pt.add(pt_index(va));
+    if (*pte & PTE_P) == 0 {
+        *pte = (phys & ADDR_MASK) | PTE_P | PTE_RW;  // ← PTE, NO PS bit
     }
     Ok(())
 }
-/// Map [0, phys_max) to [HHDM_BASE, HHDM_BASE + phys_max) using 2 MiB pages.
-/// Requires: `pml4` is the root of the new tables; intermediary tables allocated via ensure_*.
-unsafe fn map_hhdm_2mib(pml4: *mut u64, phys_max: u64) -> Result<(), ()> {
-    let two_mib = 2 * 1024 * 1024u64;
+
+unsafe fn map_hhdm_4kib(pml4: *mut u64, phys_max: u64) -> Result<(), ()> {
     let mut phys = 0u64;
     while phys < phys_max {
         let va = HHDM_BASE + phys;
-
-        // Ensure PD exists, then drop a 2 MiB leaf with PS=1
-        let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
-        let pd = ensure_pd(pdpt, pdpt_index(va))?;
-        let pdi = pd_index(va);
-        if *pd.add(pdi) & PTE_P == 0 {
-            *pd.add(pdi) = align_down(phys, two_mib) | PTE_P | PTE_RW | PTE_PS;
-        }
-
-        phys = phys.saturating_add(two_mib);
+        map_4kib_page(pml4, va, phys)?;  // write a PTE each 4 KiB
+        phys = phys.saturating_add(4096);
     }
     Ok(())
 }
 
-// Map the kernel VA range [min_vaddr..max_vaddr) to phys starting at `load_base`,
-// and identity-map 0..ident_bytes (skipping overlap with kernel VA span).
 fn build_pagetables_exec(
-    load_base: u64,
-    min_vaddr: u64,
-    max_vaddr: u64,
-    ident_bytes: u64,
-    phys_max: u64,
+    load_base: u64, min_vaddr: u64, max_vaddr: u64,
+    ident_bytes: u64, phys_max: u64
 ) -> Result<u64, ()> {
     let (pml4, pml4_phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
-    let first_2mib_end = 2 * 1024 * 1024;
+    let two_mib = 2 * 1024 * 1024u64;
+    let first_2mib_end = two_mib;
 
-    // Map kernel range by constant offset
+    // constant offset VA->PA
     let delta = load_base as i128 - min_vaddr as i128;
 
-    // Kernel slice below 2MiB: 4K pages
+    // Low slice: 4 KiB
     if min_vaddr < first_2mib_end {
         let low_end = core::cmp::min(max_vaddr, first_2mib_end);
         map_4k_offset(pml4, min_vaddr, low_end, delta)?;
     }
-    // Kernel remainder: 2MiB pages
-    let mut big_va = core::cmp::max(first_2mib_end, align_up(min_vaddr, 2 * 1024 * 1024));
-    let big_end = align_up(max_vaddr, 2 * 1024 * 1024);
-    while big_va < big_end {
-        let phys = ((big_va as i128) + delta) as u64;
-        unsafe {
-            map_2mib_page(pml4, big_va, phys)?;
-        }
-        big_va += 2 * 1024 * 1024;
-    }
 
-    // Identity-map 0..2MiB except the kernel's low slice
+    // Remainder: use 2 MiB only if delta is 2 MiB aligned; else 4 KiB.
+    let rem_start = core::cmp::max(first_2mib_end, min_vaddr);
+
+    map_4k_offset(pml4, rem_start, max_vaddr, delta)?;
+
+    // Identity low [0..2MiB) around the kernel’s low slice
     let id0_end = first_2mib_end;
     if 0 < core::cmp::min(min_vaddr, id0_end) {
-        map_4k_ident(pml4, 0, core::cmp::min(min_vaddr, id0_end))?;
+        map_4k_ident(pml4, 0x1000, core::cmp::min(min_vaddr, id0_end))?; // (optional) leave VA 0 unmapped
     }
     if max_vaddr < id0_end {
         map_4k_ident(pml4, max_vaddr, id0_end)?;
     }
 
-    // Identity-map [2MiB .. ident_bytes) with 2MiB pages, skipping overlap with kernel VA span
-    let mut va = core::cmp::max(first_2mib_end, align_down(0, 2 * 1024 * 1024));
-    let ident_end = align_up(ident_bytes, 2 * 1024 * 1024);
+    // Identity map [2MiB..ident_bytes) with **4 KiB PTEs** (since you picked 4 KiB)
+    let mut va = core::cmp::max(first_2mib_end, 0);
+    let ident_end = align_up(ident_bytes, 0x1000);
     while va < ident_end {
-        let overlap_kernel = !(va + 2 * 1024 * 1024 <= min_vaddr || va >= max_vaddr);
+        let overlap_kernel = !(va + 0x1000 <= min_vaddr || va >= max_vaddr);
         if !overlap_kernel {
-            unsafe {
-                map_2mib_page(pml4, va, va)?;
-            }
+            unsafe { map_4kib_page(pml4, va, va)?; }
         }
-        va += 2 * 1024 * 1024;
+        va += 0x1000;
     }
 
-    unsafe {
-        map_hhdm_2mib(pml4, align_up(phys_max, 2 * 1024 * 1024))?;
-    }
+    unsafe { map_hhdm_4kib(pml4, align_up(phys_max, 0x1000))?; }
     Ok(pml4_phys)
 }
 

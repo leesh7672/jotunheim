@@ -23,7 +23,6 @@ const STACK_LEN: usize = 32 * 1024;
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
 pub extern "C" fn _start(boot: &BootInfo) -> ! {
-    simd::init();
     without_interrupts(|| {
         unsafe {
             serial::init_com1(115_200);

@@ -362,15 +362,9 @@ isr_ud_stub:
 
 isr_timer_stub:
     PUSH_VOLATILES
-    lea     rdi, [rsp]        ; rdi = HBASE = current HW frame (RIP|CS|RFLAGS[..])
     sub     rsp, 8
     call    isr_timer_rust
     add     rsp, 8
-    test    rax, rax
-    jz      .no_preempt
-    mov     rdi, rax
-    call    preempt
-.no_preempt:
     POP_VOLATILES
     iretq
 
