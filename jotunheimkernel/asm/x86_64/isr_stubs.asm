@@ -8,7 +8,7 @@
 ; We synthesize TF.rsp = &RIP slot; TF.ss = current SS.
 ; We pass one arg to Rust: rdi = &TrapFrame.
 
-[bits 64]
+[BITS 64]
 default rel
 
 section .text

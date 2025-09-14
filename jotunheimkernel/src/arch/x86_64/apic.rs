@@ -28,6 +28,14 @@ const REG_LVT_ERROR: u32 = 0x370;
 const REG_INIT_CNT: u32 = 0x380;
 const REG_CURR_CNT: u32 = 0x390;
 const REG_DIVIDE: u32 = 0x3E0;
+const REG_ICR_LOW: u32 = 0x300;
+const REG_ICR_HIGH: u32 = 0x310;
+
+const ICR_DM_INIT: u32 = 0b101 << 8;
+const ICR_DM_STARTUP: u32 = 0b110 << 8;
+const ICR_LEVEL_ASSERT: u32 = 1 << 14;
+const ICR_TRIG_EDGE: u32 = 0 << 15;
+const ICR_DST_NONE: u32 = 0 << 18;
 
 // x2APIC MSR mapping base and helper (index = offset >> 4)
 const X2_BASE: u32 = 0x800;
@@ -55,7 +63,6 @@ static mut MODE: Mode = Mode::XApic {
 
 // For deadline re-arm: period in TSC cycles (0 = not using deadline mode)
 static DEADLINE_PERIOD_CYC: AtomicU64 = AtomicU64::new(0);
-
 
 fn has_x2apic() -> bool {
     unsafe { (__cpuid_count(1, 0).ecx & (1 << 21)) != 0 }
@@ -242,6 +249,52 @@ pub fn open_all_irqs() {
         match MODE {
             Mode::XApic { .. } => apic_write(REG_TPR, 0x00),
             Mode::X2Apic => Msr::new(0x808).write(0x00),
+        }
+    }
+}
+
+pub fn icr_write(dest_apic_id: u32, low: u32) {
+    match unsafe { MODE } {
+        Mode::XApic { .. } => unsafe {
+            apic_write(REG_ICR_HIGH, dest_apic_id << 24);
+            apic_write(REG_ICR_LOW, low);
+            while (apic_read(REG_ICR_LOW) & (1 << 12)) != 0 {
+                core::hint::spin_loop();
+            }
+        },
+        Mode::X2Apic => {
+            // x2APIC uses MSR 0x830 (ICR) with 64-bit payload
+            let val = ((dest_apic_id as u64) << 32) | (low as u64);
+            x2_icr_write(val);
+        }
+    }
+}
+
+fn x2_icr_write(val: u64) {
+    use x86_64::registers::model_specific::Msr;
+    unsafe {
+        Msr::new(0x830).write(val);
+    }
+}
+
+pub fn send_init(apic_id: u32) {
+    icr_write(
+        apic_id,
+        ICR_DM_INIT | ICR_LEVEL_ASSERT | ICR_TRIG_EDGE | ICR_DST_NONE,
+    );
+}
+
+pub unsafe fn send_startup(apic_id: u32, vector: u8) {
+    let v = (vector as u32) & 0xFF;
+    icr_write(apic_id, ICR_DM_STARTUP | v);
+}
+
+pub fn lapic_id() -> u32 {
+    match unsafe { MODE } {
+        Mode::XApic { .. } => (unsafe { apic_read(0x20) } >> 24) as u32,
+        Mode::X2Apic => {
+            use x86_64::registers::model_specific::Msr;
+            (unsafe { Msr::new(0x802).read() } & 0xFFFF_FFFF) as u32
         }
     }
 }

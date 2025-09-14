@@ -1,5 +1,5 @@
+use crate::mem::{KHEAP_SIZE, KHEAP_START};
 use core::ptr::addr_of;
-use crate::mem::{KHEAP_START, KHEAP_SIZE};
 
 pub trait Memory {
     fn can_read(&self, addr: usize, len: usize) -> bool;

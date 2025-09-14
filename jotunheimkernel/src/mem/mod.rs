@@ -3,17 +3,17 @@ pub mod simple_alloc;
 
 extern crate alloc;
 use alloc::alloc::alloc_zeroed;
-use x86_64::structures::paging::FrameDeallocator;
 use core::alloc::Layout;
+use x86_64::structures::paging::FrameDeallocator;
 
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, MutexGuard};
 use x86_64::{
-    structures::paging::{
-        mapper::MapperFlush, FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable,
-        PageTableFlags, PhysFrame, Size4KiB,
-    },
     PhysAddr, VirtAddr,
+    structures::paging::{
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags,
+        PhysFrame, Size4KiB, mapper::MapperFlush,
+    },
 };
 
 use crate::bootinfo::BootInfo;
@@ -188,46 +188,20 @@ pub fn init_heap() {
 }
 
 pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
-    let bytes = (pages * PAGE_SIZE) as usize;
-
-    // 1) Reserve a contiguous VA range from the heap (already 4K-mapped).
-    let layout = Layout::from_size_align(bytes, PAGE_SIZE).ok()?;
-    let va_base = unsafe { alloc_zeroed(layout) } as *mut u8;
-    if va_base.is_null() {
-        return None;
+    let bytes = pages * PAGE_SIZE;
+    let layout = core::alloc::Layout::from_size_align(bytes, PAGE_SIZE).ok()?;
+    unsafe {
+        let p = alloc_zeroed(layout);
+        if p.is_null() { None } else { Some(p) }
     }
-
-    // 2) Map fresh frames to that VA range.
-    let mut mapper = active_mapper();
-    let mut fa = TinyAllocGuard::new()?;
-    let mut off = 0usize;
-
-    while off < bytes {
-        let pf = fa.allocate_frame()?;
-        map_4k(
-            &mut mapper,
-            va_base as u64 + off as u64, // <-- KHEAP VA
-            pf.start_address().as_u64(), // <-- backing PFN
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL,
-            &mut fa,
-        );
-        off += 4096;
-    }
-
-    Some(va_base)
 }
-
 
 /// Map a single 4 KiB page at `va`, allocating a fresh physical frame from the early allocator.
 /// Returns the physical address that was mapped.
 /// Panics if the early allocator is not seeded or if it runs out of frames.
 ///
 /// This is a thin convenience wrapper over `map_4k(...)`.
-pub fn map_4k_simple(
-    mapper: &mut OffsetPageTable<'static>,
-    va: u64,
-    flags: PageTableFlags,
-) -> u64 {
+pub fn map_4k_simple(mapper: &mut OffsetPageTable<'static>, va: u64, flags: PageTableFlags) -> u64 {
     // Borrow the early bootstrap allocator (TinyBump) behind a guard.
     let mut fa = TinyAllocGuard::new().expect("map_4k_simple: early frame allocator not available");
 
@@ -237,21 +211,12 @@ pub fn map_4k_simple(
         .expect("map_4k_simple: out of early frames");
 
     // Map VA → that physical frame with the requested flags.
-    map_4k(
-        mapper,
-        va,
-        pf.start_address().as_u64(),
-        flags,
-        &mut fa,
-    );
+    map_4k(mapper, va, pf.start_address().as_u64(), flags, &mut fa);
 
     pf.start_address().as_u64()
 }
 
-pub fn unmap_4k_simple(
-    mapper: &mut OffsetPageTable<'static>,
-    va: u64,
-) {
+pub fn unmap_4k_simple(mapper: &mut OffsetPageTable<'static>, va: u64) {
     let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
 
     // Use a dummy frame deallocator that ignores the freed frame
@@ -264,7 +229,6 @@ pub fn unmap_4k_simple(
         flush.flush();
     }
 }
-
 
 pub fn phys_to_virt(pa: u64) -> u64 {
     pa + unsafe { PHYS_TO_VIRT_OFFSET }
@@ -298,15 +262,5 @@ unsafe impl<'a> FrameAllocator<Size4KiB> for TinyAllocGuard<'a> {
 
 struct NoopDealloc;
 impl FrameDeallocator<Size4KiB> for NoopDealloc {
-    unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {
-        
-    }   
-}
-
-pub fn make_guard_page(va: u64) {
-    let mut mapper = active_mapper();
-    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
-    if let Ok((_, flush)) = unsafe { mapper.unmap(page) } {
-        flush.flush();
-    }
+    unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {}
 }

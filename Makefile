@@ -46,7 +46,7 @@ CARGO_FLAGS      += --features ${FEATURES}
 
 # ===== Default target =====
 .PHONY: all
-all: esp-populate
+all: esp-populate check-tools
 
 # ===== Preflight =====
 .PHONY: check-tools

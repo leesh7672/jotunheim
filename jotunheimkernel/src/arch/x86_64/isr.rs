@@ -23,9 +23,17 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) -> ! {
     let tf = unsafe { &*tf };
     kprintln!(
         "[#GP] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
-        tf.vec, tf.err, tf.rip, tf.rsp, tf.rflags, tf.cs as u16, tf.ss as u16
+        tf.vec,
+        tf.err,
+        tf.rip,
+        tf.rsp,
+        tf.rflags,
+        tf.cs as u16,
+        tf.ss as u16
     );
-    loop { x86_64::instructions::hlt(); }
+    loop {
+        x86_64::instructions::hlt();
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -42,9 +50,9 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) -> ! {
     }
 
     // walk page tables (adapt PHYS_TO_VIRT_OFFSET/HHDM as in your mapper)
-    unsafe fn read64(p: u64) -> u64 { unsafe {
-        (p as *const u64).read_volatile()
-    }}
+    unsafe fn read64(p: u64) -> u64 {
+        unsafe { (p as *const u64).read_volatile() }
+    }
 
     let va = cr2;
     let pml4_idx = ((va >> 39) & 0x1ff) as usize;

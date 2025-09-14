@@ -1,6 +1,6 @@
 unsafe extern "C" {
-    static __bss_start: u8;
-    static __bss_end: u8;
+    unsafe static __bss_start: u8;
+    unsafe static __bss_end: u8;
 }
 #[allow(dead_code)]
 

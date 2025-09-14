@@ -1,6 +1,5 @@
 use core::arch::x86_64::{__cpuid_count, _rdtsc};
 
-
 pub fn rdtsc() -> u64 {
     unsafe { _rdtsc() }
 }

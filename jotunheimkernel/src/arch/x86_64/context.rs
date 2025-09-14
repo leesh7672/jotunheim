@@ -1,6 +1,5 @@
 // src/arch/x86_64/context.rs
 
-
 #[repr(C)]
 pub struct TrapFrame {
     pub r15: u64,
@@ -25,14 +24,6 @@ pub struct TrapFrame {
     pub rflags: u64,
     pub rsp: u64,
     pub ss: u64,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum DebugReason {
-    Breakpoint,
-    SingleStep,
-    Exception(u8),
-    Int3,
 }
 
 #[derive(Copy, Clone, Default)]
@@ -63,7 +54,5 @@ unsafe extern "C" {
 }
 
 pub fn switch(prev: *mut CpuContext, next: *const CpuContext) {
-    unsafe {
-        __ctx_switch(prev, next)
-    }
+    unsafe { __ctx_switch(prev, next) }
 }

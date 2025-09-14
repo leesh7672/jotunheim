@@ -3,6 +3,7 @@
 ;   [0] = arg
 ;   [1] = entry fn pointer
 ; RSP -> [arg][entry]
+[BITS 64]
 extern sched_exit_current_trampoline
 global kthread_trampoline
 kthread_trampoline:

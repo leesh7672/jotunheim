@@ -26,7 +26,6 @@ pub struct XSaveCaps {
 static CAPS: Once<XSaveCaps> = Once::new();
 static READY: AtomicU32 = AtomicU32::new(0);
 
-
 pub fn simd_ready() -> bool {
     READY.load(Ordering::Acquire) != 0
 }

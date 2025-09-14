@@ -20,7 +20,6 @@ const XCR0_X87: u64 = 1 << 0;
 const XCR0_SSE: u64 = 1 << 1;
 const XCR0_YMM: u64 = 1 << 2; // AVX (YMM upper halves)
 
-
 fn rdcr0() -> u64 {
     let v;
     unsafe { asm!("mov {}, cr0", out(reg) v) };

@@ -10,8 +10,8 @@ extern crate alloc;
 
 use crate::arch::x86_64::context::{CpuContext, switch};
 use crate::arch::x86_64::simd::{restore, save};
-use crate::sched::sched_simd::SimdArea;
 use crate::kprintln;
+use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
 
@@ -69,7 +69,7 @@ static RQ: Mutex<RunQueue> = Mutex::new(RunQueue {
             rdx: 0,
             rcx: 0,
             rax: 0,
-            rflags: 0
+            rflags: 0,
         },
         simd: SimdArea {
             dump: [0; sched_simd::SIZE],
@@ -267,7 +267,7 @@ pub fn tick() {
                 }
             }
             rq.tasks[next].state = TaskState::Running;
-            
+
             let (prev_ctx, prev_simd) = {
                 let prev = &mut rq.tasks[current];
                 (&mut prev.ctx as *mut CpuContext, prev.simd.as_mut_ptr())

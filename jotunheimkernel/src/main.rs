@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod acpi;
 mod arch;
 mod bootinfo;
 mod debug;
@@ -8,13 +9,16 @@ mod mem;
 mod sched;
 mod util;
 
-use crate::{bootinfo::BootInfo, sched::exit_current};
+extern crate alloc;
 
-use core::panic::PanicInfo;
+use crate::{arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, sched::exit_current};
+
+use core::{panic::PanicInfo};
 use x86_64::instructions::{
     hlt,
     interrupts::{self, without_interrupts},
 };
+use alloc::boxed::Box;
 
 use crate::arch::x86_64::{mmio_map, serial};
 
@@ -55,7 +59,10 @@ extern "C" fn main_thread(arg: usize) -> ! {
     mem::init(&boot);
     mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
     mem::init_heap();
+
     kprintln!("[JOTUNHEIM] Enabled the memory management.");
+    boot_all_aps(&boot);
+    kprintln!("[JOTUNHEIM] Ends the main thread.");
     exit_current();
 }
 

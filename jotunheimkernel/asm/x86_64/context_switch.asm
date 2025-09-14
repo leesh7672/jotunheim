@@ -1,6 +1,7 @@
 ; void __ctx_switch(CpuContext* prev, const CpuContext* next);
 ; SysV: rdi = &prev, rsi = &next
 
+[BITS 64]
 global __ctx_switch
 default rel
 section .text

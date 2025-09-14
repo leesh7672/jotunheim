@@ -6,6 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=asm/x86_64/isr_stubs.asm");
     println!("cargo:rerun-if-changed=asm/x86_64/context_switch.asm");
     println!("cargo:rerun-if-changed=asm/x86_64/kthread-trampoline.asm");
+    println!("cargo:rerun-if-changed=asm/x86_64/ap_trampoline.asm");
 
     let target = env::var("TARGET").unwrap_or_default();
     if !target.starts_with("x86_64-") {
@@ -33,7 +34,8 @@ fn main() {
     build
         .file("asm/x86_64/isr_stubs.asm")
         .file("asm/x86_64/context_switch.asm")
-        .file("asm/x86_64/kthread_trampoline.asm");
+        .file("asm/x86_64/kthread_trampoline.asm")
+        .file("asm/x86_64/ap_trampline.asm");
 
     if let Err(e) = build.compile("arch_x86_64_asm") {
         panic!("NASM build failed: {e}");

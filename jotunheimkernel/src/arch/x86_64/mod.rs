@@ -7,7 +7,10 @@ pub mod isr;
 pub mod mmio_map;
 pub mod serial;
 pub mod simd;
+pub mod smp;
 pub mod tsc;
+
+mod ap_trampoline;
 
 use crate::kprintln;
 

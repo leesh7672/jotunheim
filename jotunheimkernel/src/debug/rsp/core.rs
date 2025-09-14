@@ -28,11 +28,9 @@ static NO_ACK: AtomicBool = AtomicBool::new(false);
 
 // ───────────────────────────── Small helpers ─────────────────────────────────
 
-
 fn hex4(n: u8) -> u8 {
     if n < 10 { b'0' + n } else { b'a' + (n - 10) }
 }
-
 
 fn from_hex(h: u8) -> Option<u8> {
     match h {
@@ -72,7 +70,6 @@ fn parse_addr_len(off: usize, total: usize) -> Option<(usize, usize, usize)> {
     Some((addr, len, ua + 1 + ul))
 }
 
-
 fn starts_with(off: usize, total: usize, pat: &[u8]) -> bool {
     if pat.len() > total.saturating_sub(off) {
         return false;
@@ -86,7 +83,6 @@ fn starts_with(off: usize, total: usize, pat: &[u8]) -> bool {
     }
     true
 }
-
 
 fn write_hex_u64_into(out: &mut [u8], mut v: u64) -> usize {
     if v == 0 {
@@ -108,7 +104,6 @@ fn write_hex_u64_into(out: &mut [u8], mut v: u64) -> usize {
 
 // ─────────────────────────── Packet I/O helpers ──────────────────────────────
 
-
 fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {
     tx.putc(b'$');
     let mut cks: u8 = 0;
@@ -120,7 +115,6 @@ fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {
     tx.putc(hex4((cks >> 4) & 0xF));
     tx.putc(hex4(cks & 0xF));
 }
-
 
 unsafe fn send_pkt_raw<T: Transport>(tx: &T, ptr: *const u8, len: usize) {
     tx.putc(b'$');
@@ -501,7 +495,6 @@ fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
     tx.putc(hex4((cks >> 4) & 0xF));
     tx.putc(hex4(cks & 0xF));
 }
-
 
 fn write_hex_u64_stream<T: Transport>(tx: &T, cks: &mut u8, mut v: u64) {
     // write without leading zeros; "0" if zero
