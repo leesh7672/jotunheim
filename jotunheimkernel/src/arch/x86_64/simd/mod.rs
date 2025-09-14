@@ -3,6 +3,8 @@
 
 pub mod caps;
 
+use crate::kprintln;
+
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv, _xsetbv};
 
@@ -19,10 +21,6 @@ const CR4_OSXSAVE: u64 = 1 << 18; // XSAVE/XRSTOR + XGETBV/XSETBV
 const XCR0_X87: u64 = 1 << 0;
 const XCR0_SSE: u64 = 1 << 1;
 const XCR0_YMM: u64 = 1 << 2; // AVX (YMM upper halves)
-
-extern "C" fn simd_init() {
-    init();
-}
 
 #[inline]
 fn rdcr0() -> u64 {

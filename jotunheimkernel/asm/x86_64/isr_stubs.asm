@@ -1,13 +1,12 @@
 ; asm/x86_64/isr_stubs.asm
 ; NASM 64-bit ISR stubs for Jotunheim
-; Builds to an ELF64 .o via build.rs (nasm-rs).
-; Conventions:
-;   - SysV x86_64 ABI for Rust targets
-;   - Caller-saved registers are pushed/popped in stubs
-;   - Stack alignment: ensure RSP % 16 == 8 before `call`
-;   - Error-code exceptions (#GP, #PF, #DF) read error code from stack
-;   - No-error exceptions (e.g., #UD) pass err = 0
-;   - #UD also passes RIP and interrupted RSP to Rust
+; Matches Rust TrapFrame:
+;   r15..rax, vec, err, rip, cs, rflags, rsp, ss
+; Same-CPL assumptions:
+;   No-error exceptions: stack = [RIP][CS][RFLAGS]
+;   With-error exceptions: stack = [ERR][RIP][CS][RFLAGS]
+; We synthesize TF.rsp = &RIP slot; TF.ss = current SS.
+; We pass one arg to Rust: rdi = &TrapFrame.
 
 [bits 64]
 default rel
@@ -21,68 +20,22 @@ global isr_pf_stub
 global isr_df_stub
 global isr_ud_stub
 global isr_bp_stub
+global isr_db_stub
 global isr_timer_stub
 global isr_spurious_stub
-global isr_db_stub
 
-; ---------------- External Rust targets ----------------
-extern isr_default_rust        ; fn(u64, u64) -> ()
-extern isr_gp_rust             ; fn(u64, u64) -> !
-extern isr_pf_rust             ; fn(u64, u64, u64) -> !
-extern isr_df_rust             ; fn(u64, u64) -> !
-extern isr_ud_rust             ; fn(u64, u64, u64, u64) -> !
+; ---------------- External Rust handlers (all take *mut TrapFrame) ----------
+extern isr_default_rust        ; fn(*mut TrapFrame) -> !
+extern isr_gp_rust             ; fn(*mut TrapFrame) -> !
+extern isr_pf_rust             ; fn(*mut TrapFrame) -> !
+extern isr_df_rust             ; fn(*mut TrapFrame) -> !
+extern isr_ud_rust             ; fn(*mut TrapFrame) -> !
+extern isr_bp_rust             ; fn(*mut TrapFrame) -> ()
+extern isr_db_rust             ; fn(*mut TrapFrame) -> ()
 extern isr_timer_rust          ; fn() -> ()
 extern isr_spurious_rust       ; fn() -> ()
-extern isr_bp_rust       ; fn() -> ()
-extern isr_db_rust
 
-extern preempt
-
-%macro PUSH_VOLATILES 0
-    push r15
-    push r14
-    push r13
-    push r12
-    push r11
-    push r10
-    push r9
-    push r8
-    push rsi
-    push rdi
-    push rbp
-    push rdx
-    push rcx
-    push rbx
-    push rax
-%endmacro
-
-%macro POP_VOLATILES 0
-    pop rax
-    pop rbx
-    pop rcx
-    pop rdx
-    pop rbp
-    pop rdi
-    pop rsi
-    pop r8
-    pop r9
-    pop r10
-    pop r11
-    pop r12
-    pop r13
-    pop r14
-    pop r15
-%endmacro
-
-%macro CALL_ALIGN 1
-    mov     rbx, rsp
-    and     rbx, 15            ; rbx = rsp % 16
-    sub     rsp, rbx           ; make %rsp 16-aligned for 'call'
-    call    %1
-    add     rsp, rbx           ; restore
-%endmacro
-
-
+; ---------------- TrapFrame field offsets (bytes) ----------------
 %define TF_R15      (0*8)
 %define TF_R14      (1*8)
 %define TF_R13      (2*8)
@@ -107,340 +60,208 @@ extern preempt
 %define TF_SS      (21*8)
 %define TF_SIZE    (22*8)
 
+; ---------------- Helpers ----------------
 
-; Count of pushes above
-%define N_SAVED 15
-
-; IRET frame locations relative to current RSP after PUSH_VOLATILES
-;  - No-error exceptions: frame is [RIP, CS, RFLAGS, ...] at rsp + N_SAVED*8
-;  - Error-code exceptions: CPU pushes err first, then [RIP, CS, RFLAGS, ...]
-%define FRAME   rsp + N_SAVED*8      ; -> [RIP, CS, RFLAGS, ...]
-%define FRAME_ERRTOP  rsp + N_SAVED*8      ; -> error code
-%define FRAME_ERR     rsp + N_SAVED*8 + 8  ; -> [RIP, CS, RFLAGS, ...]
-
-; Alignment helpers:
-; On same-CPL interrupts:
-;   - No-error exceptions/timer/spurious: CPU pushes 3 qwords → entry RSP%16 == 8
-;     After 9 pushes (+72), RSP%16 == 0 → subtract 8 so before CALL it's 8.
-;   - Error-code exceptions: CPU pushes 4 qwords → entry RSP%16 == 0
-;     After 9 pushes (+72), RSP%16 == 8 → already correct, call directly.
-%macro CALL_ALIGN 1
-    sub rsp, 8
-    call %1
-    add rsp, 8
-%endmacro
-
-%macro CALL_ALIGN_ERR 1
-    ; already aligned (RSP%16 == 8)
-    call %1
-%endmacro
-
-; ============================================================================ ;
-; Default stub (no error code) — used for catch-all vectors that don't push err
-; ============================================================================ ;
-isr_default_stub:
-    PUSH_VOLATILES
-    mov     rdi, 0                ; vec = 0 (unknown/default)
-    xor     rsi, rsi              ; err = 0
-    CALL_ALIGN isr_default_rust
-    POP_VOLATILES
-    iretq
-    
-isr_bp_stub:
-    ; RSP -> [ RIP | CS | RFLAGS ]
-    lea     r11, [rsp]              ; HBASE = RSP (points at RIP)
-    sub     rsp, TF_SIZE            ; reserve TrapFrame
-
-    ; Save GPRs
-    mov [rsp + TF_R15], r15
-    mov [rsp + TF_R14], r14
-    mov [rsp + TF_R13], r13
-    mov [rsp + TF_R12], r12
-    mov [rsp + TF_R11], r11         ; we can store HBASE as "r11" value; fine
-    mov [rsp + TF_R10], r10
-    mov [rsp + TF_R9 ], r9
-    mov [rsp + TF_R8 ], r8
-    mov [rsp + TF_RSI], rsi
-    mov [rsp + TF_RDI], rdi
-    mov [rsp + TF_RBP], rbp
-    mov [rsp + TF_RDX], rdx
-    mov [rsp + TF_RCX], rcx
-    mov [rsp + TF_RBX], rbx
-    mov [rsp + TF_RAX], rax
-
-    ; vec/err
-    mov qword [rsp + TF_VEC], 3
-    mov qword [rsp + TF_ERR], 0
-
-    ; Copy HW frame (RIP/CS/RFLAGS) from HBASE
-    mov rax, [r11 + 0]              ; RIP
-    mov [rsp + TF_RIP], rax
-    mov rax, [r11 + 8]              ; CS
-    mov [rsp + TF_CS], rax
-    mov rax, [r11 + 16]             ; RFLAGS
-    mov [rsp + TF_RFLAGS], rax
-
-    ; Synthesize SS, RSP in TrapFrame
-    lea rax, [r11 + 0]              ; "return frame" base (RSP at exception)
-    mov [rsp + TF_RSP], rax
-    mov ax, ss
-    movzx eax, ax
-    mov [rsp + TF_SS], rax
-
-    ; Call Rust
-    mov rdi, rsp                    ; &TrapFrame
-    call isr_bp_rust
-
-    ; Restore GPRs
-    mov r15, [rsp + TF_R15]
-    mov r14, [rsp + TF_R14]
-    mov r13, [rsp + TF_R13]
-    mov r12, [rsp + TF_R12]
-    mov r11, [rsp + TF_R11]
-    mov r10, [rsp + TF_R10]
-    mov  r9, [rsp + TF_R9 ]
-    mov  r8, [rsp + TF_R8 ]
-    mov rsi, [rsp + TF_RSI]
-    mov rdi, [rsp + TF_RDI]
-    mov rbp, [rsp + TF_RBP]
-    mov rdx, [rsp + TF_RDX]
-    mov rcx, [rsp + TF_RCX]
-    mov rbx, [rsp + TF_RBX]
-    mov rax, [rsp + TF_RAX]
-
-    ; Write adjusted RIP/CS/RFLAGS back to HW frame at HBASE (= saved TF_RSP)
-    mov rdx, [rsp + TF_RSP]         ; rdx = HBASE
-    mov rax, [rsp + TF_RIP]
-    mov [rdx + 0],  rax
-    mov rax, [rsp + TF_CS]
-    mov [rdx + 8],  rax
-    mov rax, [rsp + TF_RFLAGS]
-    mov [rdx + 16], rax
-
-    ; Return to HW frame
-    mov rsp, rdx
-    iretq
-
-isr_db_stub:
-    ; RSP -> [ RIP | CS | RFLAGS ]
-    lea     r11, [rsp]              ; HBASE = RSP (points at RIP)
-    sub     rsp, TF_SIZE            ; reserve TrapFrame
-
-    ; Save GPRs
-    mov [rsp + TF_R15], r15
-    mov [rsp + TF_R14], r14
-    mov [rsp + TF_R13], r13
-    mov [rsp + TF_R12], r12
-    mov [rsp + TF_R11], r11         ; we can store HBASE as "r11" value; fine
-    mov [rsp + TF_R10], r10
-    mov [rsp + TF_R9 ], r9
-    mov [rsp + TF_R8 ], r8
-    mov [rsp + TF_RSI], rsi
-    mov [rsp + TF_RDI], rdi
-    mov [rsp + TF_RBP], rbp
-    mov [rsp + TF_RDX], rdx
-    mov [rsp + TF_RCX], rcx
-    mov [rsp + TF_RBX], rbx
-    mov [rsp + TF_RAX], rax
-
-    ; vec/err
-    mov qword [rsp + TF_VEC], 3
-    mov qword [rsp + TF_ERR], 0
-
-    ; Copy HW frame (RIP/CS/RFLAGS) from HBASE
-    mov rax, [r11 + 0]              ; RIP
-    mov [rsp + TF_RIP], rax
-    mov rax, [r11 + 8]              ; CS
-    mov [rsp + TF_CS], rax
-    mov rax, [r11 + 16]             ; RFLAGS
-    mov [rsp + TF_RFLAGS], rax
-
-    ; Synthesize SS, RSP in TrapFrame
-    lea rax, [r11 + 0]              ; "return frame" base (RSP at exception)
-    mov [rsp + TF_RSP], rax
-    mov ax, ss
-    movzx eax, ax
-    mov [rsp + TF_SS], rax
-
-    ; Call Rust
-    mov rdi, rsp                    ; &TrapFrame
-    call isr_db_rust
-
-    ; Restore GPRs
-    mov r15, [rsp + TF_R15]
-    mov r14, [rsp + TF_R14]
-    mov r13, [rsp + TF_R13]
-    mov r12, [rsp + TF_R12]
-    mov r11, [rsp + TF_R11]
-    mov r10, [rsp + TF_R10]
-    mov  r9, [rsp + TF_R9 ]
-    mov  r8, [rsp + TF_R8 ]
-    mov rsi, [rsp + TF_RSI]
-    mov rdi, [rsp + TF_RDI]
-    mov rbp, [rsp + TF_RBP]
-    mov rdx, [rsp + TF_RDX]
-    mov rcx, [rsp + TF_RCX]
-    mov rbx, [rsp + TF_RBX]
-    mov rax, [rsp + TF_RAX]
-
-    ; Write adjusted RIP/CS/RFLAGS back to HW frame at HBASE (= saved TF_RSP)
-    mov rdx, [rsp + TF_RSP]         ; rdx = HBASE
-    mov rax, [rsp + TF_RIP]
-    mov [rdx + 0],  rax
-    mov rax, [rsp + TF_CS]
-    mov [rdx + 8],  rax
-    mov rax, [rsp + TF_RFLAGS]
-    mov [rdx + 16], rax
-
-    ; Return to HW frame
-    mov rsp, rdx
-    iretq
-
-; ============================================================================ ;
-; #GP (vector 13) — HAS error code
-; Stack on entry: [err][RIP][CS][RFLAGS][(SS,RSP if CPL change)]
-; ============================================================================ ;
-
-isr_gp_stub:
-    ; RSP -> [ RIP | CS | RFLAGS ]
-    lea     r11, [rsp]              ; HBASE = RSP (points at RIP)
-    sub     rsp, TF_SIZE            ; reserve TrapFrame
-
-    ; Save GPRs
-    mov [rsp + TF_R15], r15
-    mov [rsp + TF_R14], r14
-    mov [rsp + TF_R13], r13
-    mov [rsp + TF_R12], r12
-    mov [rsp + TF_R11], r11         ; we can store HBASE as "r11" value; fine
-    mov [rsp + TF_R10], r10
-    mov [rsp + TF_R9 ], r9
-    mov [rsp + TF_R8 ], r8
-    mov [rsp + TF_RSI], rsi
-    mov [rsp + TF_RDI], rdi
-    mov [rsp + TF_RBP], rbp
-    mov [rsp + TF_RDX], rdx
-    mov [rsp + TF_RCX], rcx
-    mov [rsp + TF_RBX], rbx
-    mov [rsp + TF_RAX], rax
-
-    ; vec/err
-    mov qword [rsp + TF_VEC], 3
-    mov qword [rsp + TF_ERR], 0
-
-    ; Copy HW frame (RIP/CS/RFLAGS) from HBASE
-    mov rax, [r11 + 0]              ; RIP
-    mov [rsp + TF_RIP], rax
-    mov rax, [r11 + 8]              ; CS
-    mov [rsp + TF_CS], rax
-    mov rax, [r11 + 16]             ; RFLAGS
-    mov [rsp + TF_RFLAGS], rax
-
-    ; Synthesize SS, RSP in TrapFrame
-    lea rax, [r11 + 0]              ; "return frame" base (RSP at exception)
-    mov [rsp + TF_RSP], rax
-    mov ax, ss
-    movzx eax, ax
-    mov [rsp + TF_SS], rax
-
-    ; Call Rust
-    mov rdi, rsp                    ; &TrapFrame
-    call isr_gp_rust
-
-    ; Restore GPRs
-    mov r15, [rsp + TF_R15]
-    mov r14, [rsp + TF_R14]
-    mov r13, [rsp + TF_R13]
-    mov r12, [rsp + TF_R12]
-    mov r11, [rsp + TF_R11]
-    mov r10, [rsp + TF_R10]
-    mov  r9, [rsp + TF_R9 ]
-    mov  r8, [rsp + TF_R8 ]
-    mov rsi, [rsp + TF_RSI]
-    mov rdi, [rsp + TF_RDI]
-    mov rbp, [rsp + TF_RBP]
-    mov rdx, [rsp + TF_RDX]
-    mov rcx, [rsp + TF_RCX]
-    mov rbx, [rsp + TF_RBX]
-    mov rax, [rsp + TF_RAX]
-
-    ; Write adjusted RIP/CS/RFLAGS back to HW frame at HBASE (= saved TF_RSP)
-    mov rdx, [rsp + TF_RSP]         ; rdx = HBASE
-    mov rax, [rsp + TF_RIP]
-    mov [rdx + 0],  rax
-    mov rax, [rsp + TF_CS]
-    mov [rdx + 8],  rax
-    mov rax, [rsp + TF_RFLAGS]
-    mov [rdx + 16], rax
-
-    ; Return to HW frame
-    mov rsp, rdx
-    iretq
-
-; ============================================================================ ;
-; #PF (vector 14) — HAS error code
-; Rust signature expects RIP as 3rd arg.
-; ============================================================================ ;
-isr_pf_stub:
-    PUSH_VOLATILES
-    mov     rdi, 14
-    mov     rsi, [FRAME_ERRTOP + 0]   ; err
-    mov     rdx, [FRAME_ERR + 0]      ; rip (first qword of IRET frame)
-    CALL_ALIGN_ERR isr_pf_rust         ; -> !
-.hang_pf:
-    cli
-    hlt
-    jmp     .hang_pf
-
-; ============================================================================ ;
-; #DF (vector 8) — HAS error code (hardware pushes 0)
-; ============================================================================ ;
-
-isr_df_stub:
-    PUSH_VOLATILES
-    push    qword 3            ; vec = 3 (#BP)
-    push    qword 0            ; err = 0 (synthetic)
-    lea     rdi, [rsp]         ; arg0 = &TrapFrame
-    CALL_ALIGN isr_bp_rust     ; Rust may tweak tf->rflags (TF) or RIP, etc.
-    add     rsp, 16            ; pop our synthetic (vec, err)
-    POP_VOLATILES
-    iretq
-
-; ============================================================================ ;
-; #UD (vector 6) — NO error code
-; Pass vec, err=0, rip, and interrupted rsp to Rust.
-; ============================================================================ ;
-isr_ud_stub:
-    PUSH_VOLATILES
-    mov rdi, rsp            
-    mov     rdi, 8
-    mov     rsi, [FRAME_ERRTOP + 0]   ; err (0 by hardware)
-    CALL_ALIGN_ERR isr_df_rust         ; -> !
-.hang_ud:
-    cli
-    hlt
-    jmp     .hang_ud
-
-; ============================================================================ ;
-; LAPIC Timer (vector 0x20) — NO error code
-; Must EOI in Rust (or here after the call).
-; ============================================================================ ;
-; extern isr_timer_rust          ; fn(hbase: u64) -> *const PreemptPack
-
-isr_timer_stub:
-    PUSH_VOLATILES
+; SysV call alignment helper:
+; Before CALL: RSP%16 must be 8 (so inside callee it's 16).
+%macro CALL_SYSV 1
+    mov     rax, rsp
+    and     rax, 15
+    cmp     rax, 8
+    je      %%aligned
     sub     rsp, 8
-    call    isr_timer_rust
+    call    %1
     add     rsp, 8
-    POP_VOLATILES
+    jmp     %%done
+%%aligned:
+    call    %1
+%%done:
+%endmacro
+
+; Save GPR snapshot into TF (at [rsp]), not onto the CPU stack.
+%macro SAVE_GPRS_TO_TF 0
+    mov [rsp + TF_R15], r15
+    mov [rsp + TF_R14], r14
+    mov [rsp + TF_R13], r13
+    mov [rsp + TF_R12], r12
+    mov [rsp + TF_R11], r11
+    mov [rsp + TF_R10], r10
+    mov [rsp + TF_R9 ], r9
+    mov [rsp + TF_R8 ], r8
+    mov [rsp + TF_RSI], rsi
+    mov [rsp + TF_RDI], rdi
+    mov [rsp + TF_RBP], rbp
+    mov [rsp + TF_RDX], rdx
+    mov [rsp + TF_RCX], rcx
+    mov [rsp + TF_RBX], rbx
+    mov [rsp + TF_RAX], rax
+%endmacro
+
+; Restore GPRs from TF
+%macro RESTORE_GPRS_FROM_TF 0
+    mov  r15, [rsp + TF_R15]
+    mov  r14, [rsp + TF_R14]
+    mov  r13, [rsp + TF_R13]
+    mov  r12, [rsp + TF_R12]
+    mov  r11, [rsp + TF_R11]
+    mov  r10, [rsp + TF_R10]
+    mov   r9, [rsp + TF_R9 ]
+    mov   r8, [rsp + TF_R8 ]
+    mov  rsi, [rsp + TF_RSI]
+    mov  rdi, [rsp + TF_RDI]
+    mov  rbp, [rsp + TF_RBP]
+    mov  rdx, [rsp + TF_RDX]
+    mov  rcx, [rsp + TF_RCX]
+    mov  rbx, [rsp + TF_RBX]
+    mov  rax, [rsp + TF_RAX]
+%endmacro
+
+; ----- NO-ERROR exceptions: entry stack = [RIP][CS][RFLAGS] -----
+; We capture r12 = &RIP BEFORE allocating TF space.
+%macro BUILD_TF_NO_ERR 1
+    mov     r12, rsp              ; r12 = &RIP (top of HW frame)
+    sub     rsp, TF_SIZE          ; reserve TrapFrame
+
+    SAVE_GPRS_TO_TF
+
+    ; Copy HW frame from r12
+    mov     rax, [r12 + 0]        ; RIP
+    mov     [rsp + TF_RIP], rax
+    mov     rax, [r12 + 8]        ; CS
+    mov     [rsp + TF_CS], rax
+    mov     rax, [r12 + 16]       ; RFLAGS
+    mov     [rsp + TF_RFLAGS], rax
+
+    ; Synthesize RSP/SS at trap time
+    mov     [rsp + TF_RSP], r12   ; interrupted RSP points to RIP slot
+    mov     ax, ss
+    movzx   eax, ax
+    mov     [rsp + TF_SS], rax
+
+    ; Vector / Error
+    mov     qword [rsp + TF_VEC], %1
+    mov     qword [rsp + TF_ERR], 0
+%endmacro
+
+; ----- WITH-ERROR exceptions: entry = [ERR][RIP][CS][RFLAGS] -----
+; We capture r12 = &RIP, r13 = &ERR BEFORE allocating TF space.
+%macro BUILD_TF_WITH_ERR 1
+    lea     r12, [rsp + 8]        ; r12 = &RIP
+    mov     r13, rsp              ; r13 = &ERR
+    sub     rsp, TF_SIZE
+
+    SAVE_GPRS_TO_TF
+
+    ; Copy HW frame and error
+    mov     rax, [r12 + 0]        ; RIP
+    mov     [rsp + TF_RIP], rax
+    mov     rax, [r12 + 8]        ; CS
+    mov     [rsp + TF_CS], rax
+    mov     rax, [r12 + 16]       ; RFLAGS
+    mov     [rsp + TF_RFLAGS], rax
+    mov     rax, [r13 + 0]        ; ERR
+    mov     [rsp + TF_ERR], rax
+
+    ; Synthesize RSP/SS
+    mov     [rsp + TF_RSP], r12   ; &RIP (skip ERR on return)
+    mov     ax, ss
+    movzx   eax, ax
+    mov     [rsp + TF_SS], rax
+
+    mov     qword [rsp + TF_VEC], %1
+%endmacro
+
+; Write back possibly-updated RIP/CS/RFLAGS into HW frame at r12
+%macro WRITE_BACK_HW 0
+    mov     rax, [rsp + TF_RIP]
+    mov     [r12 + 0],  rax
+    mov     rax, [rsp + TF_CS]
+    mov     [r12 + 8],  rax
+    mov     rax, [rsp + TF_RFLAGS]
+    mov     [r12 + 16], rax
+%endmacro
+
+; =============================================================================
+; Stubs
+; =============================================================================
+
+; Default catch-all (no error), vec=0
+isr_default_stub:
+    BUILD_TF_NO_ERR 0
+    mov     rdi, rsp                ; &TrapFrame
+    CALL_SYSV isr_default_rust
+    WRITE_BACK_HW
+    RESTORE_GPRS_FROM_TF
+    mov     rsp, r12                ; back to HW frame (&RIP)
     iretq
 
+; #BP (3) — no error
+isr_bp_stub:
+    BUILD_TF_NO_ERR 3
+    mov     rdi, rsp
+    CALL_SYSV isr_bp_rust
+    WRITE_BACK_HW
+    RESTORE_GPRS_FROM_TF
+    mov     rsp, r12
+    iretq
 
-; ============================================================================ ;
-; LAPIC Spurious — NO error code
-; Typically no EOI required, but harmless if Rust does it.
-; ============================================================================ ;
+; #DB (1) — no error
+isr_db_stub:
+    BUILD_TF_NO_ERR 1
+    mov     rdi, rsp
+    CALL_SYSV isr_db_rust
+    WRITE_BACK_HW
+    RESTORE_GPRS_FROM_TF
+    mov     rsp, r12
+    iretq
+
+; #UD (6) — no error
+isr_ud_stub:
+    BUILD_TF_NO_ERR 6
+    mov     rdi, rsp
+    CALL_SYSV isr_ud_rust
+    WRITE_BACK_HW
+    RESTORE_GPRS_FROM_TF
+    mov     rsp, r12
+    iretq
+
+; #GP (13) — with error
+isr_gp_stub:
+    BUILD_TF_WITH_ERR 13
+    mov     rdi, rsp
+    CALL_SYSV isr_gp_rust
+    WRITE_BACK_HW
+    RESTORE_GPRS_FROM_TF
+    mov     rsp, r12                ; skip ERR (now top is RIP)
+    iretq
+
+; #PF (14) — with error
+isr_pf_stub:
+    BUILD_TF_WITH_ERR 14
+    mov     rdi, rsp
+    CALL_SYSV isr_pf_rust
+    WRITE_BACK_HW
+    RESTORE_GPRS_FROM_TF
+    mov     rsp, r12
+    iretq
+
+; #DF (8) — with error (hardware pushes 0)
+isr_df_stub:
+    BUILD_TF_WITH_ERR 8
+    mov     rdi, rsp
+    CALL_SYSV isr_df_rust
+    WRITE_BACK_HW
+    RESTORE_GPRS_FROM_TF
+    mov     rsp, r12
+    iretq
+
+; LAPIC Timer (no error) — minimal edge (no TF). If you want TF-based preemption,
+; convert to BUILD_TF_NO_ERR 0x20 and pass &TrapFrame instead.
+isr_timer_stub:
+    CALL_SYSV isr_timer_rust
+    iretq
+
+; LAPIC Spurious (no error)
 isr_spurious_stub:
-    PUSH_VOLATILES
-    CALL_ALIGN isr_spurious_rust
-    POP_VOLATILES
+    CALL_SYSV isr_spurious_rust
     iretq

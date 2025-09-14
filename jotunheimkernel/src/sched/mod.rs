@@ -58,20 +58,20 @@ static RQ: Mutex<RunQueue> = Mutex::new(RunQueue {
             r14: 0,
             r13: 0,
             r12: 0,
+            rbp: 0,
+            rbx: 0,
+            rsp: 0,
+            rip: 0,
             r11: 0,
             r10: 0,
             r9: 0,
             r8: 0,
             rsi: 0,
             rdi: 0,
-            rbp: 0,
-            rbx: 0,
             rdx: 0,
             rcx: 0,
             rax: 0,
-            rsp: 0,
-            rip: 0,
-            rflags: 0,
+            rflags: 0
         },
         simd: SimdArea {
             dump: [0; sched_simd::SIZE],
@@ -158,23 +158,9 @@ pub fn init() {
             ctx: CpuContext {
                 // zero GPRs you don’t care about; set the essentials:
                 rip: kthread_trampoline as u64, // <- trampoline first
-                rsp: frame as u64,              // <- points at [arg][entry]
-                rflags: 0x202,                  // IF=1
-                rdi: 0,
-                rsi: 0,
-                rdx: 0,
-                rcx: 0,
-                rax: 0,
-                rbx: 0,
-                rbp: 0,
-                r8: 0,
-                r9: 0,
-                r10: 0,
-                r11: 0,
-                r12: 0,
-                r13: 0,
-                r14: 0,
-                r15: 0,
+                rsp: frame as u64,
+                rflags: 0x202,
+                ..CpuContext::default()
             },
             simd: SimdArea {
                 dump: [0; sched_simd::SIZE],
@@ -214,25 +200,9 @@ pub fn spawn_kthread(
             id,
             state: TaskState::Ready,
             ctx: CpuContext {
-                // zero GPRs you don’t care about; set the essentials:
-                rip: kthread_trampoline as u64, // <- trampoline first
-                rsp: frame as u64,              // <- points at [arg][entry]
-                rflags: 0x202,                  // IF=1
-                rdi: 0,
-                rsi: 0,
-                rdx: 0,
-                rcx: 0,
-                rax: 0,
-                rbx: 0,
-                rbp: 0,
-                r8: 0,
-                r9: 0,
-                r10: 0,
-                r11: 0,
-                r12: 0,
-                r13: 0,
-                r14: 0,
-                r15: 0,
+                rip: kthread_trampoline as u64,
+                rsp: frame as u64,
+                ..CpuContext::default()
             },
             simd: SimdArea {
                 dump: [0; sched_simd::SIZE],

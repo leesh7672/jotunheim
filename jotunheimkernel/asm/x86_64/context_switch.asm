@@ -1,8 +1,12 @@
-; rdi = &prev.ctx, rsi = &next.ctx
+; void __ctx_switch(CpuContext* prev, const CpuContext* next);
+; SysV: rdi = &prev, rsi = &next
+
 global __ctx_switch
+default rel
 section .text
+
 __ctx_switch:
-    ; -------- save prev --------
+    ; ---------------- save prev ----------------
     mov     [rdi+0x00], r15
     mov     [rdi+0x08], r14
     mov     [rdi+0x10], r13
@@ -11,45 +15,49 @@ __ctx_switch:
     mov     [rdi+0x28], r10
     mov     [rdi+0x30], r9
     mov     [rdi+0x38], r8
-    mov     [rdi+0x40], rsi
-    mov     [rdi+0x48], rdi
-    mov     [rdi+0x50], rbp
-    mov     [rdi+0x58], rbx
+    mov     [rdi+0x40], rdi
+    mov     [rdi+0x48], rsi
+    mov     [rdi+0x50], rbx
+    mov     [rdi+0x58], rbp
     mov     [rdi+0x60], rdx
     mov     [rdi+0x68], rcx
     mov     [rdi+0x70], rax
+    mov     [rdi+0x78], rsp
     lea     rax, [rel .ret_here]
-    mov     [rdi+0x80], rax         ; RIP
+    mov     [rdi+0x80], rax            ; save return RIP
     pushfq
-    pop     rax
-    mov     [rdi+0x88], rax         ; RFLAGS
-    mov     rax, rsp
-    mov     [rdi+0x78], rax         ; RSP
+    pop     qword [rdi+0x88]           ; save RFLAGS
 
-    ; -------- restore next --------
-    mov     rax, rsi                ; RAX holds BASE = &next.ctx (stable)
-    mov     r15, [rax+0x00]
-    mov     r14, [rax+0x08]
-    mov     r13, [rax+0x10]
-    mov     r12, [rax+0x18]
-    mov     r11, [rax+0x20]
-    mov     r10, [rax+0x28]
-    mov     r9,  [rax+0x30]
-    mov     r8,  [rax+0x38]
-    mov     rsi, [rax+0x40]
-    mov     rdi, [rax+0x48]
-    mov     rbp, [rax+0x50]
-    mov     rbx, [rax+0x58]
-    mov     rcx, [rax+0x68]
-    mov     rdx, [rax+0x80]         ; next RIP -> RDX
-    mov     r10, [rax+0x88]         ; next RFLAGS -> R10
-    mov     rsp, [rax+0x78]         ; *** correct: +0x78 ***
-    mov     rdx, rdx                ; (no-op; just to emphasize RDX holds target)
-    mov     rax, [rax+0x70]         ; restore RAX last
-    push    r10
+    ; ---------------- restore next ----------------
+    ; Keep BASE = &next in RDX (stable) until RIP is pushed.
+    mov     rdx, rsi
+
+    ; Restore GPRs that don't destroy BASE
+    mov     r15, [rdx+0x00]
+    mov     r14, [rdx+0x08]
+    mov     r13, [rdx+0x10]
+    mov     r12, [rdx+0x18]
+    mov     r11, [rdx+0x20]
+    mov     r10, [rdx+0x28]
+    mov     r9,  [rdx+0x30]
+    mov     r8,  [rdx+0x38]
+    mov     rbx, [rdx+0x50]
+    mov     rbp, [rdx+0x58]
+    mov     rcx, [rdx+0x68]
+    mov     rax, [rdx+0x70]
+
+    ; Switch to next stack before flags/ret
+    mov     rsp, [rdx+0x78]
+
+    ; Restore FLAGS exactly as saved
+    push    qword [rdx+0x88]
     popfq
-    sti
-    jmp     rdx
+    ; Push next RIP on next stack, then set arg regs and RET
+    mov     r10, [rdx+0x80]           ; may #PF if next.ctx+0x80 unmapped
+    mov     rdi, [rdx+0x40]
+    mov     rsi, [rdx+0x48]
+    mov     rdx, [rdx+0x60]            ; now safe to restore RDX (BASE no longer needed)
+    jmp r10
 
 .ret_here:
     ret

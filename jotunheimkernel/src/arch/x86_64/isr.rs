@@ -1,3 +1,4 @@
+use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use x86_64::instructions::interrupts::without_interrupts;
@@ -18,58 +19,78 @@ pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_gp_rust(tf: &mut TrapFrame) -> ! {
-    let dr6: u64;
-    let dr7: u64;
-    let cr0: u64;
-    let cr4: u64;
-    let rip = tf.rip;
-    let rflags = tf.rflags;
-    let cs = tf.cs;
-    let ss = tf.ss;
-    let rsp = tf.rsp;
-    unsafe {
-        core::arch::asm!("mov {}, dr6", out(reg) dr6);
-        core::arch::asm!("mov {}, dr7", out(reg) dr7);
-        core::arch::asm!("mov {}, cr0", out(reg) cr0);
-        core::arch::asm!("mov {}, cr4", out(reg) cr4); // or split edx:eax
-    }
-
+pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) -> ! {
+    let tf = unsafe { &*tf };
     kprintln!(
-        "[#GP] rip={:#018x} rsp={:#018x} rflags={:#018x}",
-        rip,
-        rsp,
-        rflags
+        "[#GP] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
+        tf.vec, tf.err, tf.rip, tf.rsp, tf.rflags, tf.cs as u16, tf.ss as u16
     );
-    kprintln!(
-        "[#GP] cs={:#06x} ss={:#06x} cr0={:#018x} cr4={:#018x}",
-        cs,
-        ss,
-        cr0,
-        cr4
-    );
-    kprintln!("[#GP] dr6={:#018x} dr7={:#018x}", dr6, dr7);
-    kprintln!("[#GP]");
-    loop {
-        x86_64::instructions::hlt();
-    }
+    loop { x86_64::instructions::hlt(); }
 }
+
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_spurious_rust(_vec: u64, _err: u64) {
+pub extern "C" fn isr_spurious_rust() {
     unsafe { apic::eoi() };
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_pf_rust(_vec: u64, err: u64, rip: u64) -> ! {
-    use x86_64::registers::control::Cr2;
-    let cr2 = Cr2::read().expect("CR2 read failed").as_u64();
-    crate::arch::x86_64::mmio_map::log_va_mapping("PF-cr2", cr2, 0);
+pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) -> ! {
+    let tf = unsafe { &*tf };
+    let cr2: u64;
+    unsafe {
+        asm!("mov {}, cr2", out(reg) cr2);
+    }
 
+    // walk page tables (adapt PHYS_TO_VIRT_OFFSET/HHDM as in your mapper)
+    unsafe fn read64(p: u64) -> u64 {
+        (p as *const u64).read_volatile()
+    }
+
+    let va = cr2;
+    let pml4_idx = ((va >> 39) & 0x1ff) as usize;
+    let pdpt_idx = ((va >> 30) & 0x1ff) as usize;
+    let pd_idx = ((va >> 21) & 0x1ff) as usize;
+    let pt_idx = ((va >> 12) & 0x1ff) as usize;
+
+    let cr3: u64;
+    unsafe {
+        asm!("mov {}, cr3", out(reg) cr3);
+    }
+    let pml4 = cr3 & !0xfff;
+
+    let pml4e = unsafe { read64(pml4 + 8 * (pml4_idx as u64)) };
+    let pdpte = if pml4e & 1 != 0 {
+        let pdpt = pml4e & !0xfff;
+        unsafe { read64(pdpt + 8 * (pdpt_idx as u64)) }
+    } else {
+        0
+    };
+    let pde = if pdpte & 1 != 0 && (pdpte & (1 << 7)) == 0 {
+        let pd = pdpte & !0xfff;
+        unsafe { read64(pd + 8 * (pd_idx as u64)) }
+    } else {
+        0
+    };
+    let pte = if pde & 1 != 0 && (pde & (1 << 7)) == 0 {
+        let pt = pde & !0xfff;
+        unsafe { read64(pt + 8 * (pt_idx as u64)) }
+    } else {
+        0
+    };
+
+    kprintln!("[#PF] cr2={:#018x} err={:#x}", va, tf.err);
     kprintln!(
-        "[#PF] err={:#018x} cr2={:#016x} rip={:#016x}",
-        err,
-        cr2,
-        rip
+        "      rip={:#018x} rsp={:#018x} rflags={:#018x}",
+        tf.rip,
+        tf.rsp,
+        tf.rflags
+    );
+    kprintln!(
+        "      pml4e={:#x} pdpte={:#x} pde={:#x} pte={:#x}",
+        pml4e,
+        pdpte,
+        pde,
+        pte
     );
     loop {
         x86_64::instructions::hlt();
@@ -149,7 +170,6 @@ pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
 }
 
 #[unsafe(no_mangle)]
-
 pub extern "C" fn isr_timer_rust() {
     apic::timer_isr_eoi_and_rearm_deadline();
     sched::tick()

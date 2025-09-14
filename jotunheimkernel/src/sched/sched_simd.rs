@@ -1,8 +1,9 @@
 // src/sched/simd.rs
 
-pub const SIZE: usize = 832; // default FXSAVE size; will be bumped by init
+pub const SIZE: usize = 4096;
 
 #[derive(Clone, Debug)]
+#[repr(C, align(64))]
 pub struct SimdArea {
     pub dump: [u8; SIZE],
 }
