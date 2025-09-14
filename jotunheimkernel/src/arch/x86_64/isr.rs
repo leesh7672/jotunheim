@@ -170,7 +170,7 @@ pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust() {
+pub extern "C" fn isr_timer_rust(tf: &mut TrapFrame) {
     apic::timer_isr_eoi_and_rearm_deadline();
     sched::tick()
 }

@@ -3,8 +3,6 @@
 
 pub mod caps;
 
-use crate::kprintln;
-
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv, _xsetbv};
 

@@ -62,7 +62,6 @@ const IST_UD: u16 = 5;
 const IST_BP: u16 = 6;
 const IST_DB: u16 = 7;
 
-
 fn top_raw(base: *mut u8, len: usize) -> VirtAddr {
     // Return top-of-stack (16-byte aligned), without forming &/&mut to static mut
     let end = unsafe { base.add(len) } as *const u8;

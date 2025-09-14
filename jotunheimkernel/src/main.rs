@@ -9,6 +9,7 @@ mod sched;
 mod util;
 
 use crate::{bootinfo::BootInfo, sched::exit_current};
+
 use core::panic::PanicInfo;
 use x86_64::instructions::{
     hlt,
@@ -50,6 +51,7 @@ extern "C" fn main_thread(arg: usize) -> ! {
     kprintln!("[JOTUNHEIM] Started the main thread.");
     let boot_ptr: *const _ = arg as *const BootInfo;
     let boot: BootInfo = unsafe { *(boot_ptr) };
+
     mem::init(&boot);
     mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
     mem::init_heap();
