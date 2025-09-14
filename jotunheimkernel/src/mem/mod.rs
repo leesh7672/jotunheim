@@ -1,6 +1,10 @@
 pub mod mapper;
 pub mod simple_alloc;
 
+extern crate alloc;
+use core::alloc::Layout;
+use alloc::alloc::{alloc_zeroed};
+
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, MutexGuard};
 use x86_64::{
@@ -40,7 +44,7 @@ static NEXT_MMIO_VA: AtomicU64 = AtomicU64::new(MMIO_BASE);
 #[global_allocator]
 static GLOBAL_ALLOC: linked_list_allocator::LockedHeap = linked_list_allocator::LockedHeap::empty();
 
-#[inline]
+
 unsafe fn read_phys_u8_slice<'a>(phys: u64, len: usize, off: u64) -> &'a [u8] {
     let va = phys.wrapping_add(off) as *const u8;
     unsafe { core::slice::from_raw_parts(va, len) }
@@ -192,38 +196,41 @@ pub fn init_heap() {
         GLOBAL_ALLOC.lock().init(KHEAP_START as *mut u8, KHEAP_SIZE);
     }
 }
+
 pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
-    let bytes = (pages * PAGE_SIZE) as u64;
+    let bytes = (pages * PAGE_SIZE) as usize;
+
+    // 1) Reserve a contiguous VA range from the heap (already 4K-mapped).
+    let layout = Layout::from_size_align(bytes, PAGE_SIZE).ok()?;
+    let va_base = unsafe { alloc_zeroed(layout) } as *mut u8;
+    if va_base.is_null() { return None; }
+
+    // 2) Map fresh frames to that VA range.
     let mut mapper = active_mapper();
     let mut fa = TinyAllocGuard::new()?;
-
-    let mut out_va: u64 = 0;
-    let mut off = 0u64;
+    let mut off = 0usize;
 
     while off < bytes {
         let pf = fa.allocate_frame()?;
-        let va_this = pf.start_address().as_u64() + unsafe { PHYS_TO_VIRT_OFFSET };
-        if out_va == 0 {
-            out_va = va_this;
-        }
         map_4k(
             &mut mapper,
-            va_this,
-            pf.start_address().as_u64(),
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+            va_base as u64 + off as u64,       // <-- KHEAP VA
+            pf.start_address().as_u64(),       // <-- backing PFN
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL,
             &mut fa,
         );
-        off += Size4KiB::SIZE;
+        off += 4096;
     }
 
-    Some(out_va as *mut u8)
+    Some(va_base)
 }
 
-#[inline]
+
+
 pub fn phys_to_virt(pa: u64) -> u64 {
     pa + unsafe { PHYS_TO_VIRT_OFFSET }
 }
-#[inline]
+
 pub fn virt_to_phys(va: u64) -> u64 {
     va - unsafe { PHYS_TO_VIRT_OFFSET }
 }

@@ -5,7 +5,7 @@ pub trait Memory {
     fn can_write(&self, addr: usize, len: usize) -> bool;
 }
 
-#[inline]
+
 fn in_range(addr: usize, len: usize, s: usize, e: usize) -> bool {
     addr >= s && addr.checked_add(len).map(|a| a <= e).unwrap_or(false)
 }

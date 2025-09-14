@@ -4,33 +4,33 @@ pub struct X86_64Core;
 
 pub const G_HEX_LEN: usize = 572;
 
-#[inline]
+
 const fn hex4(n: u8) -> u8 {
     if n < 10 { b'0' + n } else { b'a' + (n - 10) }
 }
 
-#[inline]
+
 unsafe fn put8(out: *mut u8, w: &mut usize, v: u8) {
     out.add(*w).write(hex4((v >> 4) & 0xF));
     out.add(*w + 1).write(hex4(v & 0xF));
     *w += 2;
 }
 
-#[inline]
+
 unsafe fn put16(out: *mut u8, w: &mut usize, v: u16) {
     for b in v.to_le_bytes() {
         put8(out, w, b);
     }
 }
 
-#[inline]
+
 unsafe fn put32(out: *mut u8, w: &mut usize, v: u32) {
     for b in v.to_le_bytes() {
         put8(out, w, b);
     }
 }
 
-#[inline]
+
 unsafe fn put64(out: *mut u8, w: &mut usize, v: u64) {
     for b in v.to_le_bytes() {
         put8(out, w, b);
@@ -119,7 +119,7 @@ pub unsafe fn read_g(tf: *mut TrapFrame, payload: &[u8]) -> bool {
 
     let mut i = 0usize;
 
-    #[inline]
+    
     fn from_hex(h: u8) -> Option<u8> {
         match h {
             b'0'..=b'9' => Some(h - b'0'),
@@ -128,7 +128,7 @@ pub unsafe fn read_g(tf: *mut TrapFrame, payload: &[u8]) -> bool {
             _ => None,
         }
     }
-    #[inline]
+    
     fn r64(p: &[u8], idx: &mut usize) -> Option<u64> {
         let mut le = [0u8; 8];
         for k in 0..8 {
@@ -139,7 +139,7 @@ pub unsafe fn read_g(tf: *mut TrapFrame, payload: &[u8]) -> bool {
         *idx += 16;
         Some(u64::from_le_bytes(le))
     }
-    #[inline]
+    
     fn r32(p: &[u8], idx: &mut usize) -> Option<u32> {
         let mut le = [0u8; 4];
         for k in 0..4 {

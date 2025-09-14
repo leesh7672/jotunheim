@@ -29,12 +29,12 @@ static NO_ACK: AtomicBool = AtomicBool::new(false);
 
 // ───────────────────────────── Small helpers ─────────────────────────────────
 
-#[inline]
+
 fn hex4(n: u8) -> u8 {
     if n < 10 { b'0' + n } else { b'a' + (n - 10) }
 }
 
-#[inline]
+
 fn from_hex(h: u8) -> Option<u8> {
     match h {
         b'0'..=b'9' => Some(h - b'0'),
@@ -46,7 +46,7 @@ fn from_hex(h: u8) -> Option<u8> {
 
 /// Parse hex usize starting at `off`, up to `total` bytes in INBUF.
 /// Returns (val, used_len).
-#[inline]
+
 fn parse_hex_usize(off: usize, total: usize) -> Option<(usize, usize)> {
     let mut n = 0usize;
     let mut i = 0usize;
@@ -63,7 +63,7 @@ fn parse_hex_usize(off: usize, total: usize) -> Option<(usize, usize)> {
 }
 
 /// Parse "addr,len" pair; returns (addr, len, bytes_consumed)
-#[inline]
+
 fn parse_addr_len(off: usize, total: usize) -> Option<(usize, usize, usize)> {
     let (addr, ua) = parse_hex_usize(off, total)?;
     if off + ua >= total || unsafe { INBUF[off + ua] } != b',' {
@@ -73,7 +73,7 @@ fn parse_addr_len(off: usize, total: usize) -> Option<(usize, usize, usize)> {
     Some((addr, len, ua + 1 + ul))
 }
 
-#[inline]
+
 fn starts_with(off: usize, total: usize, pat: &[u8]) -> bool {
     if pat.len() > total.saturating_sub(off) {
         return false;
@@ -88,7 +88,7 @@ fn starts_with(off: usize, total: usize, pat: &[u8]) -> bool {
     true
 }
 
-#[inline]
+
 fn write_hex_u64_into(out: &mut [u8], mut v: u64) -> usize {
     if v == 0 {
         out[0] = b'0';
@@ -109,7 +109,7 @@ fn write_hex_u64_into(out: &mut [u8], mut v: u64) -> usize {
 
 // ─────────────────────────── Packet I/O helpers ──────────────────────────────
 
-#[inline]
+
 fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {
     tx.putc(b'$');
     let mut cks: u8 = 0;
@@ -122,7 +122,7 @@ fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {
     tx.putc(hex4(cks & 0xF));
 }
 
-#[inline]
+
 unsafe fn send_pkt_raw<T: Transport>(tx: &T, ptr: *const u8, len: usize) {
     tx.putc(b'$');
     let mut cks: u8 = 0;
@@ -460,7 +460,7 @@ impl RspServer {
 }
 
 // ─────────────────────────── Stop-reply builder ──────────────────────────────
-#[inline]
+
 fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
     // Stream the payload (no stack buffer, no memcpy) and compute checksum.
     // Payload: b"T" + hex(sig,2) + b";thread:" + hex(tid) + b";pc:" + hex(pc) + b";"
@@ -503,7 +503,7 @@ fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
     tx.putc(hex4(cks & 0xF));
 }
 
-#[inline]
+
 fn write_hex_u64_stream<T: Transport>(tx: &T, cks: &mut u8, mut v: u64) {
     // write without leading zeros; "0" if zero
     if v == 0 {

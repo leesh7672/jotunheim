@@ -56,7 +56,7 @@ static mut MODE: Mode = Mode::XApic {
 // For deadline re-arm: period in TSC cycles (0 = not using deadline mode)
 static DEADLINE_PERIOD_CYC: AtomicU64 = AtomicU64::new(0);
 
-#[inline]
+
 fn has_x2apic() -> bool {
     unsafe { (__cpuid_count(1, 0).ecx & (1 << 21)) != 0 }
 }

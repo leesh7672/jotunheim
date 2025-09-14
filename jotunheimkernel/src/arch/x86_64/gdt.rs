@@ -62,7 +62,7 @@ const IST_UD: u16 = 5;
 const IST_BP: u16 = 6;
 const IST_DB: u16 = 7;
 
-#[inline]
+
 fn top_raw(base: *mut u8, len: usize) -> VirtAddr {
     // Return top-of-stack (16-byte aligned), without forming &/&mut to static mut
     let end = unsafe { base.add(len) } as *const u8;
@@ -123,19 +123,19 @@ pub fn init() {
 }
 
 // ---- Accessors ----
-#[inline]
+
 pub fn selectors() -> Selectors {
     *SELECTORS.get().expect("gdt::init() not called")
 }
-#[inline]
+
 pub fn code_selector() -> SegmentSelector {
     selectors().code
 }
-#[inline]
+
 pub fn data_selector() -> SegmentSelector {
     selectors().data
 }
-#[inline]
+
 pub fn tss_selector() -> SegmentSelector {
     selectors().tss
 }

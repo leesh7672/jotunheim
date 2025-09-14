@@ -136,12 +136,12 @@ fn die(_: Status, msg: &core::fmt::Arguments) -> ! {
         }
     }
 }
-#[inline]
+
 fn align_up(x: u64, a: u64) -> u64 {
     let m = a.max(1);
     (x + m - 1) & !(m - 1)
 }
-#[inline]
+
 fn align_down(x: u64, a: u64) -> u64 {
     x & !(a - 1)
 }
@@ -240,19 +240,22 @@ const PTE_RW: u64 = 1 << 1;
 const PTE_PS: u64 = 1 << 7; // 2 MiB page
 const ADDR_MASK: u64 = 0x000F_FFFF_FFFF_F000;
 
-#[inline]
+fn is_aligned(x: u64, a: u64) -> bool {
+    (x & (a - 1)) == 0
+}
+
 fn pml4_index(va: u64) -> usize {
     ((va >> 39) & 0x1ff) as usize
 }
-#[inline]
+
 fn pdpt_index(va: u64) -> usize {
     ((va >> 30) & 0x1ff) as usize
 }
-#[inline]
+
 fn pd_index(va: u64) -> usize {
     ((va >> 21) & 0x1ff) as usize
 }
-#[inline]
+
 fn pt_index(va: u64) -> usize {
     ((va >> 12) & 0x1ff) as usize
 }
@@ -323,29 +326,75 @@ fn map_4k_ident(pml4: *mut u64, start_va: u64, end_va: u64) -> Result<(), ()> {
 // Replace your map_4kib_page with a real 4KiB PTE writer.
 unsafe fn map_4kib_page(pml4: *mut u64, va: u64, phys: u64) -> Result<(), ()> {
     let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
-    let pd   = ensure_pd(pdpt, pdpt_index(va))?;
-    let pt   = ensure_pt(pd,  pd_index(va))?;
+    let pd = ensure_pd(pdpt, pdpt_index(va))?;
+    let pt = ensure_pt(pd, pd_index(va))?;
 
     let pte = pt.add(pt_index(va));
     if (*pte & PTE_P) == 0 {
-        *pte = (phys & ADDR_MASK) | PTE_P | PTE_RW;  // ← PTE, NO PS bit
+        *pte = (phys & ADDR_MASK) | PTE_P | PTE_RW; // ← PTE, NO PS bit
     }
     Ok(())
 }
 
-unsafe fn map_hhdm_4kib(pml4: *mut u64, phys_max: u64) -> Result<(), ()> {
+unsafe fn map_hhdm_huge(pml4: *mut u64, phys_max: u64) -> Result<(), ()> {
     let mut phys = 0u64;
+
+    // 1 GiB chunks
+    while phys < phys_max {
+        if phys_max - phys >= (1 << 30)
+            && is_aligned(phys, 1 << 30)
+            && is_aligned(HHDM_BASE + phys, 1 << 30)
+        {
+            let va = HHDM_BASE + phys;
+            let l4 = pml4_index(va);
+            let l3 = pdpt_index(va);
+            let pdpt = ensure_pdpt(pml4, l4)?;
+            // install a HUGE 1GiB PDE at PDPT level:
+            let e = pdpt.add(l3);
+            if (*e & PTE_P) == 0 {
+                *e = (phys & ADDR_MASK) | PTE_P | PTE_RW | PTE_PS; // 1GiB page
+            }
+            phys += 1 << 30;
+        } else {
+            break;
+        }
+    }
+
+    // 2 MiB chunks
+    while phys < phys_max {
+        if phys_max - phys >= (2 << 20)
+            && is_aligned(phys, 2 << 20)
+            && is_aligned(HHDM_BASE + phys, 2 << 20)
+        {
+            let va = HHDM_BASE + phys;
+            let pdpt = ensure_pdpt(pml4, pml4_index(va))?;
+            let pd = ensure_pd(pdpt, pdpt_index(va))?;
+            let e = pd.add(pd_index(va));
+            if (*e & PTE_P) == 0 {
+                *e = (phys & ADDR_MASK) | PTE_P | PTE_RW | PTE_PS; // 2MiB page
+            }
+            phys += 2 << 20;
+        } else {
+            break;
+        }
+    }
+
+    // 4 KiB tail
     while phys < phys_max {
         let va = HHDM_BASE + phys;
-        map_4kib_page(pml4, va, phys)?;  // write a PTE each 4 KiB
-        phys = phys.saturating_add(4096);
+        map_4kib_page(pml4, va, phys)?;
+        phys += 4096;
     }
+
     Ok(())
 }
 
 fn build_pagetables_exec(
-    load_base: u64, min_vaddr: u64, max_vaddr: u64,
-    ident_bytes: u64, phys_max: u64
+    load_base: u64,
+    min_vaddr: u64,
+    max_vaddr: u64,
+    ident_bytes: u64,
+    phys_max: u64,
 ) -> Result<u64, ()> {
     let (pml4, pml4_phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
     let two_mib = 2 * 1024 * 1024u64;
@@ -374,18 +423,21 @@ fn build_pagetables_exec(
         map_4k_ident(pml4, max_vaddr, id0_end)?;
     }
 
-    // Identity map [2MiB..ident_bytes) with **4 KiB PTEs** (since you picked 4 KiB)
     let mut va = core::cmp::max(first_2mib_end, 0);
     let ident_end = align_up(ident_bytes, 0x1000);
     while va < ident_end {
         let overlap_kernel = !(va + 0x1000 <= min_vaddr || va >= max_vaddr);
         if !overlap_kernel {
-            unsafe { map_4kib_page(pml4, va, va)?; }
+            unsafe {
+                map_4kib_page(pml4, va, va)?;
+            }
         }
         va += 0x1000;
     }
 
-    unsafe { map_hhdm_4kib(pml4, align_up(phys_max, 0x1000))?; }
+    unsafe {
+        map_hhdm_huge(pml4, align_up(phys_max, 0x1000))?;
+    }
     Ok(pml4_phys)
 }
 
