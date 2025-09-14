@@ -1,32 +1,23 @@
-#![allow(dead_code)]
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Framebuffer {
-    pub addr: u64,
+    pub addr: u64, // physical address of linear framebuffer
     pub width: u32,
     pub height: u32,
-    pub pitch: u32,
-    pub format: u32, // 0 = RGB, 1 = BGR
-}
-
-#[repr(u32)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum MemoryKind {
-    Usable = 1,
-    Reserved = 2,
-    AcpiReclaimable = 3,
-    AcpiNvs = 4,
-    Mmio = 5,
-    Bootloader = 6,
+    pub pitch: u32,        // bytes per scanline
+    pub bpp: u32,          // bits per pixel (commonly 32)
+    pub pixel_format: u32, // kernel enum/discriminant
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct MemoryRegion {
-    pub base: u64,
-    pub length: u64,
-    pub kind: MemoryKind,
+    pub phys_start: u64,
+    pub virt_start: u64, // 0 at boot (or phys+offset if you prefer)
+    pub len: u64,
+    pub typ: u32,  // kernel enum/discriminant
+    pub attr: u64, // attribute bits
 }
 
 #[repr(C)]

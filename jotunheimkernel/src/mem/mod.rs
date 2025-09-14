@@ -44,7 +44,6 @@ static NEXT_MMIO_VA: AtomicU64 = AtomicU64::new(MMIO_BASE);
 #[global_allocator]
 static GLOBAL_ALLOC: linked_list_allocator::LockedHeap = linked_list_allocator::LockedHeap::empty();
 
-
 unsafe fn read_phys_u8_slice<'a>(phys: u64, len: usize, off: u64) -> &'a [u8] {
     let va = phys.wrapping_add(off) as *const u8;
     unsafe { core::slice::from_raw_parts(va, len) }
