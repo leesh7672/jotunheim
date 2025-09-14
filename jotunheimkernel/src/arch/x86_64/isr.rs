@@ -18,8 +18,38 @@ pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_gp_rust(_vec: u64, err: u64) -> ! {
-    kprintln!("[#GP] err={:#018x}", err);
+pub extern "C" fn isr_gp_rust(tf: &mut TrapFrame) -> ! {
+    let dr6: u64;
+    let dr7: u64;
+    let cr0: u64;
+    let cr4: u64;
+    let rip = tf.rip;
+    let rflags = tf.rflags;
+    let cs = tf.cs;
+    let ss = tf.ss;
+    let rsp = tf.rsp;
+    unsafe {
+        core::arch::asm!("mov {}, dr6", out(reg) dr6);
+        core::arch::asm!("mov {}, dr7", out(reg) dr7);
+        core::arch::asm!("mov {}, cr0", out(reg) cr0);
+        core::arch::asm!("mov {}, cr4", out(reg) cr4); // or split edx:eax
+    }
+
+    kprintln!(
+        "[#GP] rip={:#018x} rsp={:#018x} rflags={:#018x}",
+        rip,
+        rsp,
+        rflags
+    );
+    kprintln!(
+        "[#GP] cs={:#06x} ss={:#06x} cr0={:#018x} cr4={:#018x}",
+        cs,
+        ss,
+        cr0,
+        cr4
+    );
+    kprintln!("[#GP] dr6={:#018x} dr7={:#018x}", dr6, dr7);
+    kprintln!("[#GP]");
     loop {
         x86_64::instructions::hlt();
     }

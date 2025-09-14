@@ -300,15 +300,81 @@ isr_db_stub:
 ; #GP (vector 13) — HAS error code
 ; Stack on entry: [err][RIP][CS][RFLAGS][(SS,RSP if CPL change)]
 ; ============================================================================ ;
+
 isr_gp_stub:
-    PUSH_VOLATILES
-    mov     rdi, 13
-    mov     rsi, [FRAME_ERRTOP + 0]   ; err
-    CALL_ALIGN_ERR isr_gp_rust        ; -> !
-.hang_gp:
-    cli
-    hlt
-    jmp     .hang_gp
+    ; RSP -> [ RIP | CS | RFLAGS ]
+    lea     r11, [rsp]              ; HBASE = RSP (points at RIP)
+    sub     rsp, TF_SIZE            ; reserve TrapFrame
+
+    ; Save GPRs
+    mov [rsp + TF_R15], r15
+    mov [rsp + TF_R14], r14
+    mov [rsp + TF_R13], r13
+    mov [rsp + TF_R12], r12
+    mov [rsp + TF_R11], r11         ; we can store HBASE as "r11" value; fine
+    mov [rsp + TF_R10], r10
+    mov [rsp + TF_R9 ], r9
+    mov [rsp + TF_R8 ], r8
+    mov [rsp + TF_RSI], rsi
+    mov [rsp + TF_RDI], rdi
+    mov [rsp + TF_RBP], rbp
+    mov [rsp + TF_RDX], rdx
+    mov [rsp + TF_RCX], rcx
+    mov [rsp + TF_RBX], rbx
+    mov [rsp + TF_RAX], rax
+
+    ; vec/err
+    mov qword [rsp + TF_VEC], 3
+    mov qword [rsp + TF_ERR], 0
+
+    ; Copy HW frame (RIP/CS/RFLAGS) from HBASE
+    mov rax, [r11 + 0]              ; RIP
+    mov [rsp + TF_RIP], rax
+    mov rax, [r11 + 8]              ; CS
+    mov [rsp + TF_CS], rax
+    mov rax, [r11 + 16]             ; RFLAGS
+    mov [rsp + TF_RFLAGS], rax
+
+    ; Synthesize SS, RSP in TrapFrame
+    lea rax, [r11 + 0]              ; "return frame" base (RSP at exception)
+    mov [rsp + TF_RSP], rax
+    mov ax, ss
+    movzx eax, ax
+    mov [rsp + TF_SS], rax
+
+    ; Call Rust
+    mov rdi, rsp                    ; &TrapFrame
+    call isr_gp_rust
+
+    ; Restore GPRs
+    mov r15, [rsp + TF_R15]
+    mov r14, [rsp + TF_R14]
+    mov r13, [rsp + TF_R13]
+    mov r12, [rsp + TF_R12]
+    mov r11, [rsp + TF_R11]
+    mov r10, [rsp + TF_R10]
+    mov  r9, [rsp + TF_R9 ]
+    mov  r8, [rsp + TF_R8 ]
+    mov rsi, [rsp + TF_RSI]
+    mov rdi, [rsp + TF_RDI]
+    mov rbp, [rsp + TF_RBP]
+    mov rdx, [rsp + TF_RDX]
+    mov rcx, [rsp + TF_RCX]
+    mov rbx, [rsp + TF_RBX]
+    mov rax, [rsp + TF_RAX]
+
+    ; Write adjusted RIP/CS/RFLAGS back to HW frame at HBASE (= saved TF_RSP)
+    mov rdx, [rsp + TF_RSP]         ; rdx = HBASE
+    mov rax, [rsp + TF_RIP]
+    mov [rdx + 0],  rax
+    mov rax, [rsp + TF_CS]
+    mov [rdx + 8],  rax
+    mov rax, [rsp + TF_RFLAGS]
+    mov [rdx + 16], rax
+
+    ; Return to HW frame
+    mov rsp, rdx
+    iretq
 
 ; ============================================================================ ;
 ; #PF (vector 14) — HAS error code
