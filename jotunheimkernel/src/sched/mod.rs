@@ -5,15 +5,13 @@ use core::u32;
 
 use spin::Mutex;
 use x86_64::instructions::hlt;
-use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;
 
 use crate::arch::x86_64::context::{CpuContext, switch};
 use crate::arch::x86_64::simd::{restore, save};
-use crate::arch::x86_64::{context, simd};
 use crate::sched::sched_simd::SimdArea;
-use crate::{kprint, kprintln};
+use crate::kprintln;
 
 /* ------------------------------- Types & consts ------------------------------- */
 

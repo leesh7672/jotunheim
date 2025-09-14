@@ -3,7 +3,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::arch::x86_64::{apic, context, simd};
+use crate::arch::x86_64::apic;
 use crate::debug::{Outcome, TrapFrame, breakpoint};
 use crate::{debug, kprintln, sched};
 
@@ -42,9 +42,9 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) -> ! {
     }
 
     // walk page tables (adapt PHYS_TO_VIRT_OFFSET/HHDM as in your mapper)
-    unsafe fn read64(p: u64) -> u64 {
+    unsafe fn read64(p: u64) -> u64 { unsafe {
         (p as *const u64).read_volatile()
-    }
+    }}
 
     let va = cr2;
     let pml4_idx = ((va >> 39) & 0x1ff) as usize;
