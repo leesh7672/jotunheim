@@ -1,5 +1,4 @@
 // src/arch/x86_64/simd.rs
-#![allow(dead_code)]
 
 pub mod caps;
 
@@ -38,34 +37,6 @@ fn rdcr4() -> u64 {
 
 fn wrcr4(v: u64) {
     unsafe { asm!("mov cr4, {}", in(reg) v) }
-}
-
-pub struct XSaveInfo {
-    pub xsave_supported: bool,
-    pub avx_supported: bool,
-    pub xsave_size: u32, // required size for current XCR0 (subleaf 0)
-    pub xsave_mask: u64, // supported feature mask (subleaf 0)
-}
-
-/// Probe features & sizes using stable intrinsics (no inline-asm rbx).
-pub fn probe() -> XSaveInfo {
-    // Leaf 1: feature bits
-    let l1 = unsafe { __cpuid(1) };
-    let osxsave = (l1.ecx & (1 << 27)) != 0;
-    let avx = (l1.ecx & (1 << 28)) != 0;
-    let sse2 = (l1.edx & (1 << 26)) != 0;
-
-    // Leaf 0xD, subleaf 0: sizes & mask (interpreted for current XCR0)
-    let d0 = unsafe { __cpuid_count(0xD, 0) };
-    let xsave_size_all = d0.eax; // size required when enabling all supported bits
-    let xsave_feature_mask = ((d0.edx as u64) << 32) | (d0.ecx as u64);
-
-    XSaveInfo {
-        xsave_supported: osxsave && sse2,
-        avx_supported: avx,
-        xsave_size: xsave_size_all,
-        xsave_mask: xsave_feature_mask,
-    }
 }
 
 pub fn init() {
@@ -123,7 +94,6 @@ pub fn init() {
     }
 }
 
-#[inline(always)]
 pub fn save(area: *mut u8) {
     let c = caps::caps();
     if c.has_xsave && c.has_osxsave && (caps::simd_ready()) {
@@ -152,7 +122,6 @@ pub fn save(area: *mut u8) {
     }
 }
 
-#[inline(always)]
 pub fn restore(area: *const u8) {
     unsafe {
         let c = caps::caps();

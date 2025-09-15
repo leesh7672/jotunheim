@@ -6,17 +6,12 @@ use x86_64::{
 
 pub struct TinyBump {
     pub next: u64,
-    pub end:  u64,
+    pub end: u64,
 }
 
 impl TinyBump {
     pub const fn new(start: u64, end: u64) -> Self {
         Self { next: start, end }
-    }
-
-    /// Optional helpers
-    pub fn remaining_pages(&self) -> usize {
-        if self.end <= self.next { 0 } else { ((self.end - self.next) / 0x1000) as usize }
     }
 }
 
@@ -26,7 +21,6 @@ unsafe impl FrameAllocator<Size4KiB> for TinyBump {
             let cand = self.next;
             self.next = self.next.saturating_add(0x1000);
 
-            // NEW: skip reserved pages
             if crate::mem::reserved::is_reserved_page(cand) {
                 continue;
             }

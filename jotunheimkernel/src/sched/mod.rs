@@ -113,7 +113,6 @@ impl RunQueue {
 
 extern "C" fn idle_main(_arg: usize) -> ! {
     loop {
-        kprintln!("IDLE");
         hlt();
     }
 }

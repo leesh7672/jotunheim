@@ -30,44 +30,40 @@ fn in_any_range(addr: usize, len: usize, ranges: &[(usize, usize)]) -> bool {
 
 impl Memory for SectionMemory {
     fn can_read(&self, addr: usize, len: usize) -> bool {
-        unsafe {
-            use core::ptr::addr_of;
-            let text = (
-                addr_of!(__text_start) as usize,
-                addr_of!(__text_end) as usize,
-            );
-            let rod = (
-                addr_of!(__rodata_start) as usize,
-                addr_of!(__rodata_end) as usize,
-            );
-            let data = (
-                addr_of!(__data_start) as usize,
-                addr_of!(__data_end) as usize,
-            );
-            let bss = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
-            let heap = (
-                KHEAP_START as usize,
-                (KHEAP_START + KHEAP_SIZE as u64) as usize,
-            );
+        use core::ptr::addr_of;
+        let text = (
+            addr_of!(__text_start) as usize,
+            addr_of!(__text_end) as usize,
+        );
+        let rod = (
+            addr_of!(__rodata_start) as usize,
+            addr_of!(__rodata_end) as usize,
+        );
+        let data = (
+            addr_of!(__data_start) as usize,
+            addr_of!(__data_end) as usize,
+        );
+        let bss = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
+        let heap = (
+            KHEAP_START as usize,
+            (KHEAP_START + KHEAP_SIZE as u64) as usize,
+        );
 
-            in_any_range(addr, len, &[text, rod, data, bss, heap])
-        }
+        in_any_range(addr, len, &[text, rod, data, bss, heap])
     }
 
     fn can_write(&self, addr: usize, len: usize) -> bool {
-        unsafe {
-            use core::ptr::addr_of;
-            let data = (
-                addr_of!(__data_start) as usize,
-                addr_of!(__data_end) as usize,
-            );
-            let bss = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
-            let heap = (
-                KHEAP_START as usize,
-                (KHEAP_START + KHEAP_SIZE as u64) as usize,
-            );
+        use core::ptr::addr_of;
+        let data = (
+            addr_of!(__data_start) as usize,
+            addr_of!(__data_end) as usize,
+        );
+        let bss = (addr_of!(__bss_start) as usize, addr_of!(__bss_end) as usize);
+        let heap = (
+            KHEAP_START as usize,
+            (KHEAP_START + KHEAP_SIZE as u64) as usize,
+        );
 
-            in_any_range(addr, len, &[data, bss, heap])
-        }
+        in_any_range(addr, len, &[data, bss, heap])
     }
 }

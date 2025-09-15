@@ -7,7 +7,6 @@ unsafe extern "C" {
     unsafe static _ap_tramp_apboot_ptr64: u8;
 }
 
-#[inline]
 pub fn blob() -> (&'static [u8], usize, usize) {
     unsafe {
         let start = &_ap_tramp_start as *const u8 as usize;

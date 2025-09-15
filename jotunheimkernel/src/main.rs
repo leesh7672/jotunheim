@@ -12,10 +12,10 @@ mod util;
 extern crate alloc;
 
 use crate::{
-    arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, mem::reserved, sched::exit_current, util::zero_bss
+    arch::x86_64::{apic, smp::boot_all_aps}, bootinfo::BootInfo, mem::reserved, sched::exit_current,
+    util::zero_bss,
 };
 
-use alloc::{boxed::Box, vec::Vec};
 use core::panic::PanicInfo;
 use x86_64::instructions::{
     hlt,
@@ -39,14 +39,22 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         kprintln!("[JOTUNHEIM] Loaded the kernel.");
         arch::x86_64::init();
 
+        reserved::init(&boot);
+        mem::init(&boot);
+        mem::seed_usable_from_mmap(&boot);
+        mem::init_heap();
+        mmio_map::enforce_apic_mmio_flags();
+        apic::paging();
+        kprintln!("[JOTUNHEIM] Enabled the memory management.");
+
+        debug::setup();
+
         sched::init();
         kprintln!("[JOTUNHEIM] Prepared the scheduler.");
 
         let boot_ptr = boot as *const BootInfo as usize;
         let main_stack_ptr = core::ptr::addr_of_mut!(MAIN_STACK) as *mut u8;
         sched::spawn_kthread(main_thread, boot_ptr, main_stack_ptr, STACK_LEN);
-
-        debug::setup();
     });
     interrupts::enable();
     loop {
@@ -59,12 +67,6 @@ extern "C" fn main_thread(arg: usize) -> ! {
     let boot_ptr: *const _ = arg as *const BootInfo;
     let boot: BootInfo = unsafe { *(boot_ptr) };
 
-    mem::init(&boot);
-    mem::init_heap();
-    mmio_map::enforce_apic_mmio_flags();
-    reserved::init(&boot);
-
-    kprintln!("[JOTUNHEIM] Enabled the memory management.");
     boot_all_aps(&boot);
     kprintln!("[JOTUNHEIM] Ends the main thread.");
     exit_current();

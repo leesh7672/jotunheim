@@ -3,17 +3,20 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use core::{
     ptr,
-    sync::atomic::{compiler_fence, Ordering},
+    sync::atomic::{Ordering, compiler_fence},
 };
 use spin::Once;
+use x86_64::{instructions::interrupts::without_interrupts};
 
 use crate::{
-    acpi::{madt, CpuEntry},
+    acpi::madt,
+    arch::x86_64::{apic, gdt, idt},
     bootinfo::BootInfo,
-    kprintln, mem,
+    kprintln,
+    mem,
 };
 
 use crate::arch::x86_64::ap_trampoline;
@@ -53,82 +56,107 @@ pub fn boot_all_aps(boot: &BootInfo) {
         return;
     };
 
-    // 1) Copy the trampoline to a fixed low 4KiB page
-    const TRAMP_PHYS: u64 = 0x8000; // 32 KiB, 4 KiB aligned, <1MiB
+    // --- 1) Trampoline: copy once to low physical page (e.g., 0x8000) ---
+    const TRAMP_PHYS: u64 = 0x1000; // 32KiB, <1MiB, 4KiB aligned
     let (blob, p32_off, p64_off) = ap_trampoline::blob();
     if blob.len() > 4096 {
         kprintln!("[SMP] Trampoline too large: {} bytes", blob.len());
         return;
     }
+    mem::map_identity_4k(0x8000);
+    mem::map_identity_4k(0x9000);
     unsafe {
         let dst = (boot.hhdm_base + TRAMP_PHYS) as *mut u8;
-        ptr::copy_nonoverlapping(blob.as_ptr(), dst, blob.len());
+        core::ptr::copy_nonoverlapping(blob.as_ptr(), dst, blob.len());
     }
     let tramp_virt = boot.hhdm_base + TRAMP_PHYS;
     let vector: u8 = ((TRAMP_PHYS >> 12) & 0xFF) as u8;
 
-    // 2) Read BSP's CR3 so APs can use the same page tables
+    // --- 2) Warm-reset vector (some firmware requires it) ---
+    fn program_warm_reset(tramp_phys: u64, hhdm: u64) {
+        use x86_64::instructions::port::Port;
+        unsafe {
+            // CMOS shutdown code 0x0A
+            Port::<u8>::new(0x70).write(0x0F);
+            Port::<u8>::new(0x71).write(0x0A);
+            // BDA warm reset vector at phys 0x467 (segment:offset)
+            let wrv_seg = (hhdm + 0x467) as *mut u16;
+            let wrv_off = (hhdm + 0x469) as *mut u16;
+            wrv_seg.write((tramp_phys >> 4) as u16);
+            wrv_off.write(0);
+        }
+    }
+    program_warm_reset(TRAMP_PHYS, boot.hhdm_base);
+
+    // --- 3) Share BSP's CR3 so APs see the same page tables ---
     let (cr3_frame, _) = x86_64::registers::control::Cr3::read();
     let cr3 = cr3_frame.start_address().as_u64();
 
-    // 3) Entry for APs
-    let entry_fn = ap_entry as extern "C" fn() -> !;
-    let entry64 = entry_fn as usize as u64;
+    // --- 4) Entry for APs (kernel 64-bit entry) ---
+    let entry64 = (ap_entry as extern "C" fn() -> !) as usize as u64;
 
-    // 4) Boot APs one-by-one; after SIPIs we wait until ready_flag==1
-    let bsp_id = super::apic::lapic_id();
+    // --- 5) Bring up each enabled AP ---
+    let bsp_id = apic::lapic_id();
+
+    let (ab_va, ab_pa) = mem::alloc_one_phys_page_hhdm();
+    let ab_ref: &mut ApBoot = unsafe { &mut *(ab_va as *mut ApBoot) };
+    mem::map_identity_4k(ab_pa & !0xfff); // ApBoot page
+
+    let (cr3_frame, _) = x86_64::registers::control::Cr3::read();
+    let pml4_pa = cr3_frame.start_address().as_u64();
+    if pml4_pa >= (1u64 << 32) {
+        kprintln!(
+            "[SMP] FATAL: PML4 frame >= 4 GiB (0x{:x}) — 32-bit CR3 write will truncate",
+            pml4_pa
+        );
+        loop {}
+    }
+
     for c in m.cpus.iter().filter(|c| c.enabled) {
         if c.apic_id == bsp_id {
             continue;
         }
 
-        // Per-AP stack: allocate 64 KiB and leak
-        const AP_STACK_SIZE: usize = 8 * 1024;
-        let stk_box: Box<[u8]> = vec_with_len(AP_STACK_SIZE).into_boxed_slice();
-        let stk_top = (stk_box.as_ptr() as usize + AP_STACK_SIZE) as u64;
-        let _leak_stack: &'static mut [u8] = Box::leak(stk_box); // keep forever
+        // (b) Per-AP stack: 32 KiB VMAP (guaranteed mapped)
+        const AP_STACK_PAGES: usize = 8; // 8 * 4KiB = 32KiB
+        let stk_va = crate::mem::vmap_alloc_pages(AP_STACK_PAGES)
+            .expect("[SMP] vmap stack alloc failed") as u64;
+        let stk_top = stk_va + (AP_STACK_PAGES as u64) * 4096;
 
-        // Per-AP ApBoot struct (leaked)
-        let ab = ApBoot {
-            _pad: 0,
+        // (c) Fill ApBoot (BSP writes VA, AP will read PA we pass to trampoline)
+        *ab_ref = ApBoot {
             ready_flag: 0,
+            _pad: 0,
             cr3,
-            gdt_ptr: 0, // you can point to your kernel GDT later; the tramp loads a tiny flat GDT already
-            idt_ptr: 0, // reload in ap_entry() if you want
-            stack_top: stk_top,
+            gdt_ptr: 0,
+            idt_ptr: 0,
+            stack_top: stk_top, // <-- VA, valid under CR3
             entry64,
-            hhdm: boot.hhdm_base,
+            hhdm: boot.hhdm_base, // for HHDM conversions on AP if needed
         };
-        let ab_ref: &'static mut ApBoot = Box::leak(Box::new(ab));
 
-        // Trampoline expects PHYSICAL address of ApBoot
-        let ab_va = ab_ref as *mut _ as u64;
-        let apboot_phys =
-            mem::virt_to_phys_pt(ab_va).expect("[SMP] virt_to_phys_pt(ApBoot) failed");
-
-        const TRAMP_PHYS: u64 = 0x0000_8000; // your value
-        
+        // (d) Patch trampoline with **physical** address of ApBoot
         unsafe {
-            let p32_ptr = (tramp_virt + p32_off as u64) as *mut u32;
-            let p64_ptr = (tramp_virt + p64_off as u64) as *mut u64;
-            p32_ptr.write(apboot_phys as u32);
-            p64_ptr.write(apboot_phys);
+            ((tramp_virt + p32_off as u64) as *mut u32).write(ab_pa as u32);
+            ((tramp_virt + p64_off as u64) as *mut u64).write(ab_pa);
             compiler_fence(Ordering::SeqCst);
         }
 
-        // INIT → SIPI → SIPI
-        unsafe { super::apic::send_init(c.apic_id) }
-        spin_delay_us(10_000);
-        unsafe { super::apic::send_startup(c.apic_id, vector) }
-        spin_delay_us(200);
-        unsafe { super::apic::send_startup(c.apic_id, vector) }
+        // (e) Kick the AP: INIT → SIPI → SIPI
+        without_interrupts(|| {
+            apic::send_init(c.apic_id);
+            spin_delay_us(10_000);
+            unsafe { apic::send_startup(c.apic_id, vector) };
+            spin_delay_us(200);
+            unsafe { apic::send_startup(c.apic_id, vector) };
+        });
 
-        // Wait for this AP to set ready_flag (the trampoline writes it to 1)
-        if !wait_ready(&ab_ref.ready_flag as *const u32, 100_000) {
-            // 100ms-ish spin
+        // (f) Wait for trampoline to set ready_flag = 1
+        if !wait_ready(&ab_ref.ready_flag as *const u32, 200_000) {
             kprintln!("[SMP] apic_id {} did not signal ready in time", c.apic_id);
         }
     }
+
     kprintln!("[SMP] All APs attempted.");
 }
 
@@ -153,31 +181,11 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
     false
 }
 
-/// Helper to allocate a zeroed Vec of given length without referencing static mut.
-fn vec_with_len(len: usize) -> Vec<u8> {
-    let mut v = Vec::with_capacity(len);
-    // SAFETY: we immediately write zeros to the uninit region; then set_len.
-    unsafe {
-        ptr::write_bytes(v.as_mut_ptr(), 0, len);
-        v.set_len(len);
-    }
-    v
-}
-
 /// What each AP runs after the trampoline puts us in 64-bit mode.
 #[unsafe(no_mangle)]
 pub extern "C" fn ap_entry() -> ! {
-    // You can load your kernel GDT/IDT here if needed, enable interrupts, etc.
-    let id = super::apic::lapic_id();
-    kprintln!("[SMP] hello from AP lapic_id={}", id);
+    kprintln!("[SMP] hello from AP");
     loop {
         x86_64::instructions::hlt();
     }
-}
-
-/// Optional: legacy “kick” if you still call it elsewhere; now just wraps boot_all_aps().
-pub fn start_aps(boot: &BootInfo, tramp_phys: u64, _unused: &ApBoot, cpus: &[CpuEntry]) {
-    // Ignore the parameters; use the safer boot_all_aps() path that handles stacks & ApBoot
-    let _ = (tramp_phys, _unused, cpus);
-    boot_all_aps(boot);
 }

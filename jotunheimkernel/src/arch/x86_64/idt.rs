@@ -36,7 +36,7 @@ pub struct Idtr {
 }
 
 #[repr(transparent)]
-struct Idt([IdtEntry; 256]);
+pub struct Idt([IdtEntry; 256]);
 
 static mut IDT: Idt = Idt([empty_entry(); 256]);
 
@@ -124,4 +124,11 @@ pub fn init() {
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
         load_idt_ptr(idt_ptr);
     }
+}
+
+pub fn load() {
+    unsafe {
+        let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
+        load_idt_ptr(idt_ptr)
+    };
 }

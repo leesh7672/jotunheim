@@ -123,6 +123,11 @@ pub fn init() {
 
 // ---- Accessors ----
 
+pub fn load() {
+    let gdt = unsafe { &*GDT.as_mut_ptr() };
+    gdt.load();
+}
+
 pub fn selectors() -> Selectors {
     *SELECTORS.get().expect("gdt::init() not called")
 }

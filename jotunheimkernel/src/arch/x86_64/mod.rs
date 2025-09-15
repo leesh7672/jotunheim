@@ -1,3 +1,4 @@
+mod ap_trampoline;
 pub mod apic;
 pub mod context;
 pub mod gdt;
@@ -9,8 +10,6 @@ pub mod serial;
 pub mod simd;
 pub mod smp;
 pub mod tsc;
-
-mod ap_trampoline;
 
 use crate::kprintln;
 
@@ -24,7 +23,7 @@ pub fn init() {
         ioapic::mask_all();
     }
     kprintln!("[JOTUNHEIM] Masked all IOAPIC.");
-    apic::init();
+    apic::early_init();
     kprintln!("[JOTUNHEIM] Initialised APIC.");
     apic::open_all_irqs();
     kprintln!("[JOTUNHEIM] Opened all IRQs.");

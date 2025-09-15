@@ -31,4 +31,6 @@ pub struct BootInfo {
     pub early_heap_paddr: u64,
     pub early_heap_len: u64,
     pub hhdm_base: u64,
+    pub low32_pool_paddr: u64,
+    pub low32_pool_len: u64,
 }

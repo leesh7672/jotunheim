@@ -75,6 +75,8 @@ pub struct BootInfo {
     pub early_heap_paddr: u64,
     pub early_heap_len: u64,
     pub hhdm_base: u64,
+    pub low32_pool_paddr: u64,
+    pub low32_pool_len: u64,
 }
 
 /* ========================== Serial (QEMU stdio) ========================== */
@@ -260,6 +262,13 @@ fn pt_index(va: u64) -> usize {
     ((va >> 12) & 0x1ff) as usize
 }
 
+fn alloc_zero_page_low(kind: MemoryType) -> Option<(*mut u64, u64)> {
+    let p = boot::allocate_pages(AllocateType::MaxAddress(0x0000_FFFF_FFFF_F000), kind, 1).ok()?;
+    let phys = p.as_ptr() as u64;
+    unsafe { core::ptr::write_bytes(p.as_ptr(), 0, 4096) };
+    Some((p.as_ptr() as *mut u64, phys))
+}
+
 fn alloc_zero_page(kind: MemoryType) -> Option<(*mut u64, u64)> {
     let p = boot::allocate_pages(AllocateType::AnyPages, kind, 1).ok()?;
     let phys = p.as_ptr() as usize as u64;
@@ -396,7 +405,7 @@ fn build_pagetables_exec(
     ident_bytes: u64,
     phys_max: u64,
 ) -> Result<u64, ()> {
-    let (pml4, pml4_phys) = alloc_zero_page(MemoryType::LOADER_DATA).ok_or(())?;
+    let (pml4, pml4_phys) = alloc_zero_page_low(MemoryType::LOADER_DATA).ok_or(())?;
     let two_mib = 2 * 1024 * 1024u64;
     let first_2mib_end = two_mib;
 
@@ -620,6 +629,24 @@ fn main() -> Status {
     }
     slog!("[serial] entry_va = 0x{:x}", entry_va);
 
+    let low32_pages = 512usize; // 2 MiB pool; adjust as you like
+    let low32_block = boot::allocate_pages(
+        AllocateType::MaxAddress(0xFFFF_FFFF),
+        MemoryType::LOADER_DATA,
+        low32_pages,
+    )
+    .unwrap_or_else(|e| {
+        die(
+            Status::OUT_OF_RESOURCES,
+            &format_args!("low32 pool {:?}", e),
+        )
+    });
+
+    let low32_pool_paddr = low32_block.as_ptr() as u64;
+    let low32_pool_len = (low32_pages as u64) * 4096;
+    slog!("[serial] low32_pool_paddr: {}", low32_pool_paddr);
+    slog!("[serial] low32_pool_len: {}", low32_pool_len);
+
     let bi_page = must_alloc_page(MemoryType::LOADER_DATA, "BootInfo");
     let tramp_page = must_alloc_page(MemoryType::LOADER_CODE, "trampoline");
 
@@ -736,6 +763,8 @@ fn main() -> Status {
         early_heap_paddr: early_heap_paddr,
         early_heap_len: early_heap_len,
         hhdm_base: HHDM_BASE,
+        low32_pool_len,
+        low32_pool_paddr,
     };
     unsafe {
         (bi_page.as_ptr() as *mut BootInfo).write(bi_val);

@@ -6,8 +6,9 @@ use alloc::vec::Vec;
 use core::mem::size_of;
 
 use crate::acpi::{CpuEntry, IoApic, MadtInfo};
+use crate::arch::x86_64::apic;
 use crate::bootinfo::BootInfo;
-use crate::kprintln;
+use crate::{kprintln, mem};
 
 // ───────────────────── RSDP/RSDT/XSDT headers ─────────────────────
 
@@ -269,14 +270,15 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
         p += hdr.len as usize;
     }
 
-    unsafe {
-        // Leak to 'static and return borrowed slices (no static mut refs needed)
-        let cpus_ref: &'static [CpuEntry] = alloc::boxed::Box::leak(cpus.into_boxed_slice());
-        let ioapics_ref: &'static [IoApic] = alloc::boxed::Box::leak(ioapics.into_boxed_slice());
-        Some(MadtInfo {
-            lapic_phys,
-            cpus: cpus_ref,
-            ioapics: ioapics_ref,
-        })
-    }
+    // Leak to 'static and return borrowed slices (no static mut refs needed)
+    let cpus_ref: &'static [CpuEntry] = alloc::boxed::Box::leak(cpus.into_boxed_slice());
+    let ioapics_ref: &'static [IoApic] = alloc::boxed::Box::leak(ioapics.into_boxed_slice());
+
+    let m: _ = MadtInfo {
+        lapic_phys,
+        cpus: cpus_ref,
+        ioapics: ioapics_ref,
+    };
+
+    Some(m)
 }

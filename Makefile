@@ -31,6 +31,7 @@ ESP_KERNEL       := ${ESP_OS_DIR}/KERNEL.ELF
 QEMU             ?= qemu-system-x86_64
 QEMU_MACHINE     ?= q35
 QEMU_MEM         ?= 8G
+QEMU_SMP		 ?= 4
 CPU_FLAGS        ?= max
 OVMF_CODE        ?= /usr/local/share/edk2-qemu/QEMU_UEFI_CODE-x86_64.fd
 QEMU_EXTRA       ?=
@@ -109,7 +110,7 @@ run: check-tools esp-populate
 	  -chardev stdio,id=ch0,signal=off \
 	  -serial chardev:ch0 \
 	  -display gtk \
-	  -smp 4 \
+	  -smp ${QEMU_SMP} \
 	  ${QEMU_EXTRA}
 
 .PHONY: run-debug
@@ -124,7 +125,7 @@ run-debug: check-tools esp-populate
 	  -chardev socket,id=ch1,host=127.0.0.1,port=1234,server=on,wait=off,telnet=off \
 	  -serial chardev:ch1 \
 	  -display gtk \
-	  -smp 4 \
+	  -smp ${QEMU_SMP} \
 	  ${QEMU_EXTRA}
 
 .PHONY: run-headless
@@ -137,7 +138,7 @@ run-headless: check-tools esp-populate
 	  -chardev stdio,id=ch0,signal=off \
 	  -serial chardev:ch0 \
 	  -nographic \
-	  -smp 4 \
+	  -smp ${QEMU_SMP} \
 	  ${QEMU_EXTRA}
 
 # ===== Utilities =====
