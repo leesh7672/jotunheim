@@ -12,7 +12,7 @@ mod util;
 extern crate alloc;
 
 use crate::{
-    arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, sched::exit_current, util::zero_bss,
+    arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, mem::reserved, sched::exit_current, util::zero_bss
 };
 
 use alloc::{boxed::Box, vec::Vec};
@@ -62,7 +62,8 @@ extern "C" fn main_thread(arg: usize) -> ! {
     mem::init(&boot);
     mem::init_heap();
     mmio_map::enforce_apic_mmio_flags();
-    
+    reserved::init(&boot);
+
     kprintln!("[JOTUNHEIM] Enabled the memory management.");
     boot_all_aps(&boot);
     kprintln!("[JOTUNHEIM] Ends the main thread.");
