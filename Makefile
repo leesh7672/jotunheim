@@ -109,6 +109,7 @@ run: check-tools esp-populate
 	  -chardev stdio,id=ch0,signal=off \
 	  -serial chardev:ch0 \
 	  -display gtk \
+	  -smp 4 \
 	  ${QEMU_EXTRA}
 
 .PHONY: run-debug
@@ -123,6 +124,7 @@ run-debug: check-tools esp-populate
 	  -chardev socket,id=ch1,host=127.0.0.1,port=1234,server=on,wait=off,telnet=off \
 	  -serial chardev:ch1 \
 	  -display gtk \
+	  -smp 4 \
 	  ${QEMU_EXTRA}
 
 .PHONY: run-headless
@@ -135,6 +137,7 @@ run-headless: check-tools esp-populate
 	  -chardev stdio,id=ch0,signal=off \
 	  -serial chardev:ch0 \
 	  -nographic \
+	  -smp 4 \
 	  ${QEMU_EXTRA}
 
 # ===== Utilities =====

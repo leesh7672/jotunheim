@@ -200,6 +200,7 @@ pub fn spawn_kthread(
             ctx: CpuContext {
                 rip: kthread_trampoline as u64,
                 rsp: frame as u64,
+                rflags: 0x202,
                 ..CpuContext::default()
             },
             simd: SimdArea {

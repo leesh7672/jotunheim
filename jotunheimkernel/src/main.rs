@@ -11,14 +11,16 @@ mod util;
 
 extern crate alloc;
 
-use crate::{arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, sched::exit_current};
+use crate::{
+    arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, sched::exit_current, util::zero_bss,
+};
 
-use core::{panic::PanicInfo};
+use alloc::{boxed::Box, vec::Vec};
+use core::panic::PanicInfo;
 use x86_64::instructions::{
     hlt,
     interrupts::{self, without_interrupts},
 };
-use alloc::boxed::Box;
 
 use crate::arch::x86_64::{mmio_map, serial};
 
@@ -30,6 +32,7 @@ const STACK_LEN: usize = 32 * 1024;
 pub extern "C" fn _start(boot: &BootInfo) -> ! {
     without_interrupts(|| {
         unsafe {
+            zero_bss();
             serial::init_com1(115_200);
             serial::init_com2(115_200);
         }
@@ -57,9 +60,9 @@ extern "C" fn main_thread(arg: usize) -> ! {
     let boot: BootInfo = unsafe { *(boot_ptr) };
 
     mem::init(&boot);
-    mmio_map::enforce_apic_mmio_flags(boot.hhdm_base);
     mem::init_heap();
-
+    mmio_map::enforce_apic_mmio_flags();
+    
     kprintln!("[JOTUNHEIM] Enabled the memory management.");
     boot_all_aps(&boot);
     kprintln!("[JOTUNHEIM] Ends the main thread.");

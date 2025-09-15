@@ -6,14 +6,14 @@ extern crate alloc;
 use alloc::{boxed::Box, vec::Vec};
 use core::{
     ptr,
-    sync::atomic::{Ordering, compiler_fence},
+    sync::atomic::{compiler_fence, Ordering},
 };
 use spin::Once;
 
 use crate::{
-    acpi::{CpuEntry, madt},
+    acpi::{madt, CpuEntry},
     bootinfo::BootInfo,
-    kprintln,
+    kprintln, mem,
 };
 
 use crate::arch::x86_64::ap_trampoline;
@@ -37,39 +37,6 @@ pub struct Topology {
 }
 
 static TOPO: Once<Topology> = Once::new();
-
-pub fn enumerate(boot: &BootInfo) {
-    if let Some(m) = madt::discover(boot) {
-        let bsp_id = super::apic::lapic_id();
-        let total = m.cpus.len();
-        let enabled = m.cpus.iter().filter(|c| c.enabled).count();
-
-        kprintln!("[SMP] MADT LAPIC mmio = {:#x}", m.lapic_phys);
-        for (i, c) in m.cpus.iter().enumerate() {
-            kprintln!(
-                "[SMP] CPU#{:02} apic_id={} enabled={} x2apic={}",
-                i,
-                c.apic_id,
-                c.enabled,
-                c.is_x2apic
-            );
-        }
-
-        let _ = TOPO.call_once(|| Topology {
-            bsp_lapic_id: bsp_id,
-            total_cpus: total,
-            enabled_cpus: enabled,
-        });
-        kprintln!(
-            "[SMP] BSP LAPIC ID={}, total={}, enabled={}",
-            bsp_id,
-            total,
-            enabled
-        );
-    } else {
-        kprintln!("[SMP] MADT not found.");
-    }
-}
 
 pub fn topology() -> Option<&'static Topology> {
     TOPO.get()
@@ -115,7 +82,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
             continue;
         }
 
-        // Per-AP stack: allocate 8KiB and leak
+        // Per-AP stack: allocate 64 KiB and leak
         const AP_STACK_SIZE: usize = 8 * 1024;
         let stk_box: Box<[u8]> = vec_with_len(AP_STACK_SIZE).into_boxed_slice();
         let stk_top = (stk_box.as_ptr() as usize + AP_STACK_SIZE) as u64;
@@ -123,8 +90,8 @@ pub fn boot_all_aps(boot: &BootInfo) {
 
         // Per-AP ApBoot struct (leaked)
         let ab = ApBoot {
-            ready_flag: 0,
             _pad: 0,
+            ready_flag: 0,
             cr3,
             gdt_ptr: 0, // you can point to your kernel GDT later; the tramp loads a tiny flat GDT already
             idt_ptr: 0, // reload in ap_entry() if you want
@@ -135,9 +102,12 @@ pub fn boot_all_aps(boot: &BootInfo) {
         let ab_ref: &'static mut ApBoot = Box::leak(Box::new(ab));
 
         // Trampoline expects PHYSICAL address of ApBoot
-        let apboot_phys = (ab_ref as *mut ApBoot as usize as u64).wrapping_sub(boot.hhdm_base);
+        let ab_va = ab_ref as *mut _ as u64;
+        let apboot_phys =
+            mem::virt_to_phys_pt(ab_va).expect("[SMP] virt_to_phys_pt(ApBoot) failed");
 
-        // Patch the trampoline page with this AP's ApBoot physical pointer
+        const TRAMP_PHYS: u64 = 0x0000_8000; // your value
+        
         unsafe {
             let p32_ptr = (tramp_virt + p32_off as u64) as *mut u32;
             let p64_ptr = (tramp_virt + p64_off as u64) as *mut u64;

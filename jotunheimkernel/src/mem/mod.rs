@@ -3,11 +3,15 @@ pub mod simple_alloc;
 
 extern crate alloc;
 use alloc::alloc::alloc_zeroed;
-use core::alloc::Layout;
-use x86_64::structures::paging::FrameDeallocator;
-
 use core::sync::atomic::{AtomicU64, Ordering};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    sync::atomic::AtomicBool,
+};
+use linked_list_allocator::Heap as LlHeap;
 use spin::{Mutex, MutexGuard};
+use x86_64::registers::control::Cr0Flags;
+use x86_64::structures::paging::{FrameDeallocator, PageTableFlags as F, Translate};
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{
@@ -20,9 +24,11 @@ use crate::bootinfo::BootInfo;
 use crate::kprintln;
 
 const PAGE_SIZE: usize = 4096;
+const VMAP_BASE: u64 = 0xffff_e000_0000_0000;
 
+static NEXT_VMAP: AtomicU64 = AtomicU64::new(VMAP_BASE);
 static mut PHYS_TO_VIRT_OFFSET: u64 = 0;
-
+static HEAP_READY: AtomicBool = AtomicBool::new(false);
 static FRAME_ALLOC: Mutex<Option<simple_alloc::TinyBump>> = Mutex::new(None);
 
 // ── Heap window (separate from HHDM!) ────────────────────────────────────────
@@ -33,39 +39,19 @@ pub const KHEAP_SIZE: usize = 16 * 1024 * 1024;
 const MMIO_BASE: u64 = 0xffff_d000_0000_0000;
 static NEXT_MMIO_VA: AtomicU64 = AtomicU64::new(MMIO_BASE);
 
-// Single global allocator
-#[global_allocator]
-static GLOBAL_ALLOC: linked_list_allocator::LockedHeap = linked_list_allocator::LockedHeap::empty();
-
-unsafe fn read_phys_u8_slice<'a>(phys: u64, len: usize, off: u64) -> &'a [u8] {
-    let va = phys.wrapping_add(off) as *const u8;
-    unsafe { core::slice::from_raw_parts(va, len) }
+fn align_down(x: u64, a: u64) -> u64 {
+    x & !(a - 1)
 }
 
-unsafe fn validate_hhdm_with_rsdp(candidate_off: u64, rsdp_phys: u64) -> bool {
-    if candidate_off & 0xfff != 0 {
-        return false;
-    }
+fn align_up(x: u64, a: u64) -> u64 {
+    (x + (a - 1)) & !(a - 1)
+}
 
-    let s = unsafe { read_phys_u8_slice(rsdp_phys, 8, candidate_off) };
-    if s != b"RSD PTR " {
-        return false;
-    }
-
-    let v1 = unsafe { read_phys_u8_slice(rsdp_phys, 20, candidate_off) };
-    let sum_v1: u8 = v1.iter().copied().fold(0u8, |a, b| a.wrapping_add(b));
-    if sum_v1 == 0 {
-        return true;
-    }
-
-    let len_bytes = unsafe { read_phys_u8_slice(rsdp_phys + 20, 1, candidate_off) };
-    let len = len_bytes[0] as usize;
-    if len >= 20 && len <= 36 {
-        let v2 = unsafe { read_phys_u8_slice(rsdp_phys, len, candidate_off) };
-        let sum_v2: u8 = v2.iter().copied().fold(0u8, |a, b| a.wrapping_add(b));
-        return sum_v2 == 0;
-    }
-    false
+pub fn virt_to_phys_pt(va: u64) -> Option<u64> {
+    let mut mapper = active_mapper();
+    mapper
+        .translate_addr(VirtAddr::new(va))
+        .map(|pa| pa.as_u64())
 }
 
 pub fn init(boot: &BootInfo) {
@@ -74,31 +60,19 @@ pub fn init(boot: &BootInfo) {
         kprintln!("[mem] BUG: hhdm_base not 4K aligned: {:#x}", off);
         loop {}
     }
-
-    match unsafe { crate::mem::mapper::active_offset_mapper(off) } {
-        Ok(_) => { /* good */ }
-        Err(e) => {
-            kprintln!("[mem] active_offset_mapper failed: {}", e);
-            let rsdp = (boot.rsdp_addr.wrapping_add(off)) as *const u8;
-            let ok = unsafe { core::slice::from_raw_parts(rsdp, 8).eq(b"RSD PTR ") };
-            kprintln!("[mem] RSDP via HHDM: sig_ok={}", ok);
-            loop {}
-        }
-    }
-
     unsafe {
         PHYS_TO_VIRT_OFFSET = off;
     }
 
-    // Seed TinyBump
-    let start = boot.early_heap_paddr & !0xfffu64;
-    let end = (boot.early_heap_paddr + boot.early_heap_len) & !0xfffu64;
+    let start = align_down(boot.early_heap_paddr, 0x1000);
+    let end = align_up(boot.early_heap_paddr + boot.early_heap_len, 0x1000);
     *FRAME_ALLOC.lock() = Some(simple_alloc::TinyBump::new(start, end));
 
-    let _ = active_mapper();
+    use x86_64::registers::control::Cr0;
+    unsafe { Cr0::write(Cr0::read() | Cr0Flags::WRITE_PROTECT) }
 }
 
-fn active_mapper() -> OffsetPageTable<'static> {
+pub fn active_mapper() -> OffsetPageTable<'static> {
     unsafe {
         let l4 = active_level4_table_virt();
         OffsetPageTable::new(l4, VirtAddr::new(PHYS_TO_VIRT_OFFSET))
@@ -133,109 +107,81 @@ fn map_4k(
     }
 }
 
-fn map_range_4k(
-    mapper: &mut OffsetPageTable<'static>,
-    va: u64,
-    pa: u64,
-    len: usize,
-    flags: PageTableFlags,
-    fa: &mut impl FrameAllocator<Size4KiB>,
-) {
-    let mut off = 0usize;
-    while off < len {
-        map_4k(mapper, va + off as u64, pa + off as u64, flags, fa);
-        off += Size4KiB::SIZE as usize;
-    }
-}
-
-/// Map a physical MMIO region at a dedicated VA (not inside HHDM), 4 KiB pages, NO_CACHE.
-/// Returns the VA base.
-pub fn map_mmio(pa: u64, len: usize) -> u64 {
-    let size = ((len + (PAGE_SIZE - 1)) / PAGE_SIZE) * PAGE_SIZE;
-    let va = NEXT_MMIO_VA.fetch_add(size as u64, Ordering::SeqCst);
-
+/// Identity-map a single 4 KiB physical page at the same VA (PA==VA).
+/// Useful for pages the AP will access by physical pointer (trampoline, ApBoot).
+pub fn map_identity_4k(phys: u64, flags: PageTableFlags) {
     let mut mapper = active_mapper();
-    let mut fa = TinyAllocGuard::new().expect("mmio: no early frame allocator");
-
-    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
-
-    map_range_4k(&mut mapper, va, pa, size, flags, &mut fa);
-    va
+    let mut fa = TinyAllocGuard::new().expect("map_identity_4k: no early frames");
+    let pa = phys & !0xfff;
+    let va = pa;
+    map_4k(&mut mapper, va, pa, flags, &mut fa);
 }
 
 pub fn init_heap() {
+    let bytes = KHEAP_SIZE;
+    let mut mapper = active_mapper(); // safe here: call init_heap() only after mem::init()
+    let mut fa = TinyAllocGuard::new().expect("premap_kheap_head: TinyBump not ready");
+
+    let pages = ((bytes + 4095) / 4096).max(1);
+    for i in 0..pages {
+        let va = KHEAP_START + (i as u64) * 4096;
+        let pf = fa
+            .allocate_frame()
+            .expect("premap_kheap_head: out of frames");
+        map_4k(
+            &mut mapper,
+            va,
+            pf.start_address().as_u64(),
+            F::PRESENT | F::WRITABLE | F::GLOBAL | F::NO_EXECUTE,
+            &mut fa,
+        );
+        unsafe {
+            GLOBAL_ALLOC.init(KHEAP_START as *mut u8, KHEAP_SIZE);
+        }
+        HEAP_READY.store(true, Ordering::SeqCst);
+    }
+}
+
+/// TRUE once GLOBAL_ALLOC is initialized and the heap VA range is mapped.
+pub fn heap_ready() -> bool {
+    HEAP_READY.load(Ordering::SeqCst)
+}
+
+/// Heap-backed bytes inside KHEAP. No page-table mapping here.
+/// Returns a zeroed, page-aligned block from the global allocator.
+pub fn heap_alloc_bytes(bytes: usize, align: usize) -> Option<*mut u8> {
+    if !heap_ready() {
+        return None;
+    }
+    let layout = Layout::from_size_align(bytes, align.max(1)).ok()?;
+    let p = unsafe { alloc_zeroed(layout) } as *mut u8;
+    if p.is_null() { None } else { Some(p) }
+}
+
+/// VMAP-backed anonymous pages outside KHEAP. Does its own VA reservation + PFN mapping.
+/// Never calls the heap allocator.
+pub fn vmap_alloc_pages(pages: usize) -> Option<*mut u8> {
+    let bytes = pages.checked_mul(PAGE_SIZE)? as u64;
+    let base = NEXT_VMAP.fetch_add(bytes, Ordering::SeqCst);
+
     let mut mapper = active_mapper();
-    let mut fa = TinyAllocGuard::new().expect("heap: no early frame allocator");
+    let mut fa = TinyAllocGuard::new()?;
 
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL;
 
-    let mut mapped = 0usize;
-    while mapped < KHEAP_SIZE {
-        let pf = fa.allocate_frame().expect("heap: out of early frames");
+    let mut off = 0u64;
+    while off < bytes {
+        let pf = fa.allocate_frame()?;
         map_4k(
             &mut mapper,
-            KHEAP_START + mapped as u64,
+            base + off,
             pf.start_address().as_u64(),
             flags,
             &mut fa,
         );
-        mapped += Size4KiB::SIZE as usize;
+        off += Size4KiB::SIZE as u64;
     }
-
-    unsafe {
-        GLOBAL_ALLOC.lock().init(KHEAP_START as *mut u8, KHEAP_SIZE);
-    }
-}
-
-pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
-    let bytes = pages * PAGE_SIZE;
-    let layout = core::alloc::Layout::from_size_align(bytes, PAGE_SIZE).ok()?;
-    unsafe {
-        let p = alloc_zeroed(layout);
-        if p.is_null() { None } else { Some(p) }
-    }
-}
-
-/// Map a single 4 KiB page at `va`, allocating a fresh physical frame from the early allocator.
-/// Returns the physical address that was mapped.
-/// Panics if the early allocator is not seeded or if it runs out of frames.
-///
-/// This is a thin convenience wrapper over `map_4k(...)`.
-pub fn map_4k_simple(mapper: &mut OffsetPageTable<'static>, va: u64, flags: PageTableFlags) -> u64 {
-    // Borrow the early bootstrap allocator (TinyBump) behind a guard.
-    let mut fa = TinyAllocGuard::new().expect("map_4k_simple: early frame allocator not available");
-
-    // Grab one 4 KiB frame for this mapping.
-    let pf = fa
-        .allocate_frame()
-        .expect("map_4k_simple: out of early frames");
-
-    // Map VA → that physical frame with the requested flags.
-    map_4k(mapper, va, pf.start_address().as_u64(), flags, &mut fa);
-
-    pf.start_address().as_u64()
-}
-
-pub fn unmap_4k_simple(mapper: &mut OffsetPageTable<'static>, va: u64) {
-    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
-
-    // Use a dummy frame deallocator that ignores the freed frame
-    struct NoopDealloc;
-    impl FrameDeallocator<Size4KiB> for NoopDealloc {
-        unsafe fn deallocate_frame(&mut self, _frame: PhysFrame<Size4KiB>) {}
-    }
-
-    if let Ok((_, flush)) = mapper.unmap(page) {
-        flush.flush();
-    }
-}
-
-pub fn phys_to_virt(pa: u64) -> u64 {
-    pa + unsafe { PHYS_TO_VIRT_OFFSET }
-}
-
-pub fn virt_to_phys(va: u64) -> u64 {
-    va - unsafe { PHYS_TO_VIRT_OFFSET }
+    Some(base as *mut u8)
 }
 
 struct TinyAllocGuard<'a> {
@@ -264,3 +210,93 @@ struct NoopDealloc;
 impl FrameDeallocator<Size4KiB> for NoopDealloc {
     unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {}
 }
+pub struct PagingHeap {
+    inner: Mutex<LlHeap>,
+    mapped_end: AtomicU64, // [KHEAP_START .. mapped_end) is backed by frames
+}
+
+impl PagingHeap {
+    pub const fn empty() -> Self {
+        Self {
+            inner: Mutex::new(LlHeap::empty()),
+            mapped_end: AtomicU64::new(0),
+        }
+    }
+
+    pub unsafe fn init(&self, start: *mut u8, size: usize) {
+        unsafe { self.inner.lock().init(start, size) };
+        self.mapped_end.store(KHEAP_START, Ordering::SeqCst);
+    }
+
+    fn ensure_mapped(&self, need_end: u64) {
+        let cur = self.mapped_end.load(Ordering::Acquire);
+        if cur >= need_end {
+            return;
+        }
+
+        let mut mapper = active_mapper();
+        let mut fa = TinyAllocGuard::new().expect("heap map: TinyBump not ready");
+
+        // map 4KiB pages from current watermark up to need_end (rounded up)
+        let mut va = cur & !0xfff;
+        if va < KHEAP_START {
+            va = KHEAP_START;
+        }
+        let end = (need_end + 0xfff) & !0xfff;
+
+        while va < end {
+            // skip if already mapped (safe if you pre-mapped some pages)
+            if mapper.translate_addr(VirtAddr::new(va)).is_none() {
+                let pf = fa.allocate_frame().expect("heap map: out of frames");
+                unsafe {
+                    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
+                    let flush = mapper
+                        .map_to(
+                            page,
+                            pf,
+                            F::PRESENT | F::WRITABLE | F::GLOBAL | F::NO_EXECUTE,
+                            &mut fa,
+                        )
+                        .expect("heap map_to failed");
+                    flush.flush();
+                }
+            }
+            va += 4096;
+        }
+
+        self.mapped_end.store(need_end, Ordering::Release);
+    }
+}
+
+unsafe impl GlobalAlloc for PagingHeap {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // Map *ahead* so the inner heap can safely write headers anywhere it chooses.
+        let size = layout.size().max(core::mem::size_of::<usize>());
+        let headroom = 4096; // space for allocator metadata/splits
+        let need = (size + headroom + 0xfff) & !0xfff;
+
+        let cur = self.mapped_end.load(Ordering::Acquire);
+        self.ensure_mapped(cur.saturating_add(need as u64));
+
+        // Now hand out memory from the inner heap
+        let mut heap = self.inner.lock();
+        match heap.allocate_first_fit(layout) {
+            Ok(nn) => nn.as_ptr(),
+            Err(_) => {
+                // try to grow more and retry once (useful under fragmentation)
+                self.ensure_mapped(cur.saturating_add(need as u64 + (1 << 20))); // +1 MiB
+                heap.allocate_first_fit(layout)
+                    .ok()
+                    .map_or(core::ptr::null_mut(), |nn| nn.as_ptr())
+            }
+        }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        self.inner
+            .lock()
+            .deallocate(core::ptr::NonNull::new_unchecked(ptr), layout)
+    }
+}
+
+#[global_allocator]
+static GLOBAL_ALLOC: PagingHeap = PagingHeap::empty();
