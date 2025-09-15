@@ -1,4 +1,5 @@
 pub mod mapper;
+pub mod reserved;
 pub mod simple_alloc;
 
 extern crate alloc;
@@ -13,11 +14,11 @@ use spin::{Mutex, MutexGuard};
 use x86_64::registers::control::Cr0Flags;
 use x86_64::structures::paging::{FrameDeallocator, PageTableFlags as F, Translate};
 use x86_64::{
-    PhysAddr, VirtAddr,
     structures::paging::{
-        FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags,
-        PhysFrame, Size4KiB, mapper::MapperFlush,
+        mapper::MapperFlush, FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable,
+        PageTableFlags, PhysFrame, Size4KiB,
     },
+    PhysAddr, VirtAddr,
 };
 
 use crate::bootinfo::BootInfo;
@@ -155,7 +156,11 @@ pub fn heap_alloc_bytes(bytes: usize, align: usize) -> Option<*mut u8> {
     }
     let layout = Layout::from_size_align(bytes, align.max(1)).ok()?;
     let p = unsafe { alloc_zeroed(layout) } as *mut u8;
-    if p.is_null() { None } else { Some(p) }
+    if p.is_null() {
+        None
+    } else {
+        Some(p)
+    }
 }
 
 /// VMAP-backed anonymous pages outside KHEAP. Does its own VA reservation + PFN mapping.

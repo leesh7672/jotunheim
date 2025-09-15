@@ -5,24 +5,35 @@ use x86_64::{
 };
 
 pub struct TinyBump {
-    next: u64,
-    end: u64,
+    pub next: u64,
+    pub end:  u64,
 }
 
 impl TinyBump {
-    /// Give it a small scratch region of free physical memory (page aligned).
     pub const fn new(start: u64, end: u64) -> Self {
         Self { next: start, end }
+    }
+
+    /// Optional helpers
+    pub fn remaining_pages(&self) -> usize {
+        if self.end <= self.next { 0 } else { ((self.end - self.next) / 0x1000) as usize }
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for TinyBump {
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
-        if self.next + 0x1000 > self.end {
-            return None;
+        while self.next + 0x1000 <= self.end {
+            let cand = self.next;
+            self.next = self.next.saturating_add(0x1000);
+
+            // NEW: skip reserved pages
+            if crate::mem::reserved::is_reserved_page(cand) {
+                continue;
+            }
+
+            let frame = PhysFrame::containing_address(PhysAddr::new(cand));
+            return Some(frame);
         }
-        let frame = PhysFrame::containing_address(PhysAddr::new(self.next));
-        self.next += 0x1000;
-        Some(frame)
+        None
     }
 }
