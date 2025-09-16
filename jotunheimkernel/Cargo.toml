@@ -28,7 +28,7 @@ panic = "abort"
 panic = "abort"
 debug = false
 debug-assertions = false
-lto = true
+lto = false
 opt-level = 3
 
 [build-dependencies]
