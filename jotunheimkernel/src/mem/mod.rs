@@ -160,7 +160,7 @@ pub fn map_identity_4k(phys: u64) {
     }
 }
 
-pub fn alloc_one_phys_page_hhdm() -> (u64 /*va*/, u64 /*pa*/) {
+pub fn alloc_one_phys_page_hhdm() -> (u64, u64) {
     let mut guard = LOW32_ALLOC.lock();
     let bump = guard.as_mut().expect("low32 allocator not seeded");
     let pf = bump.allocate_frame().expect("no low32 frame available");
@@ -193,22 +193,6 @@ pub fn init_heap() {
         }
         HEAP_READY.store(true, Ordering::SeqCst);
     }
-}
-
-/// TRUE once GLOBAL_ALLOC is initialized and the heap VA range is mapped.
-pub fn heap_ready() -> bool {
-    HEAP_READY.load(Ordering::SeqCst)
-}
-
-/// Heap-backed bytes inside KHEAP. No page-table mapping here.
-/// Returns a zeroed, page-aligned block from the global allocator.
-pub fn heap_alloc_bytes(bytes: usize, align: usize) -> Option<*mut u8> {
-    if !heap_ready() {
-        return None;
-    }
-    let layout = Layout::from_size_align(bytes, align.max(1)).ok()?;
-    let p = unsafe { alloc_zeroed(layout) } as *mut u8;
-    if p.is_null() { None } else { Some(p) }
 }
 
 /// VMAP-backed anonymous pages outside KHEAP. Does its own VA reservation + PFN mapping.
@@ -281,7 +265,7 @@ impl PagingHeap {
         use x86_64::{
             VirtAddr,
             structures::paging::{
-                Mapper, OffsetPageTable, Page, PageTableFlags as F, Size4KiB, Translate,
+                Mapper, Page, PageTableFlags as F, Size4KiB, Translate,
             },
         };
 
@@ -314,45 +298,6 @@ impl PagingHeap {
     pub unsafe fn init(&self, start: *mut u8, size: usize) {
         unsafe { self.inner.lock().init(start, size) };
         self.mapped_end.store(KHEAP_START, Ordering::SeqCst);
-    }
-
-    fn ensure_mapped(&self, need_end: u64) {
-        let cur = self.mapped_end.load(Ordering::Acquire);
-        if cur >= need_end {
-            return;
-        }
-
-        let mut mapper = active_mapper();
-        let mut fa = TinyAllocGuard::new().expect("heap map: TinyBump not ready");
-
-        // map 4KiB pages from current watermark up to need_end (rounded up)
-        let mut va = cur & !0xfff;
-        if va < KHEAP_START {
-            va = KHEAP_START;
-        }
-        let end = (need_end + 0xfff) & !0xfff;
-
-        while va < end {
-            // skip if already mapped (safe if you pre-mapped some pages)
-            if mapper.translate_addr(VirtAddr::new(va)).is_none() {
-                let pf = fa.allocate_frame().expect("heap map: out of frames");
-                unsafe {
-                    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
-                    let flush = mapper
-                        .map_to(
-                            page,
-                            pf,
-                            F::PRESENT | F::WRITABLE | F::GLOBAL | F::NO_EXECUTE,
-                            &mut fa,
-                        )
-                        .expect("heap map_to failed");
-                    flush.flush();
-                }
-            }
-            va += 4096;
-        }
-
-        self.mapped_end.store(need_end, Ordering::Release);
     }
 }
 
