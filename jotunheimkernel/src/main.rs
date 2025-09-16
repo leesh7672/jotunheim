@@ -12,7 +12,7 @@ mod util;
 extern crate alloc;
 
 use crate::{
-    arch::x86_64::{apic, smp::boot_all_aps},
+    arch::x86_64::smp::boot_all_aps,
     bootinfo::BootInfo,
     mem::reserved,
     sched::exit_current,
