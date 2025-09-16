@@ -11,12 +11,7 @@ mod util;
 
 extern crate alloc;
 
-use crate::{
-    arch::x86_64::smp::boot_all_aps,
-    bootinfo::BootInfo,
-    mem::reserved,
-    util::zero_bss,
-};
+use crate::{arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, mem::reserved, util::zero_bss};
 
 use core::panic::PanicInfo;
 use x86_64::instructions::{
@@ -47,7 +42,6 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         sched::spawn(|| {
             kprintln!("[JOTUNHEIM] Started the main thread.");
             boot_all_aps(&boot);
-            kprintln!("[JOTUNHEIM] Ends the main thread.");
         });
         debug::setup();
     });

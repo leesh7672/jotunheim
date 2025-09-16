@@ -76,7 +76,7 @@ impl RunQueue {
 
 /* Thread Stack */
 
-const STACK_SIZE: usize = 0x8000 * 64;
+const STACK_SIZE: usize = 0x80000;
 
 #[derive(Clone, Debug)]
 struct ThreadStack {
