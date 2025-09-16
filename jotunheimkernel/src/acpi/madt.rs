@@ -4,7 +4,6 @@
 extern crate alloc;
 use alloc::vec::Vec;
 use core::mem::size_of;
-use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::acpi::{CpuEntry, IoApic, MadtInfo};
 use crate::bootinfo::BootInfo;

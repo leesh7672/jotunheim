@@ -1,6 +1,5 @@
 pub mod sched_simd;
 
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::u32;
 
 use alloc::boxed::Box;
@@ -77,7 +76,7 @@ impl RunQueue {
 
 /* Thread Stack */
 
-const STACK_SIZE: usize = 0x8000;
+const STACK_SIZE: usize = 0x8000 * 64;
 
 #[derive(Clone, Debug)]
 struct ThreadStack {
@@ -142,6 +141,7 @@ pub fn init() {
     });
     spawn(|| {
         loop {
+            hlt();
             with_rq_locked(|rq| {
                 let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
                 let mut deads = Vec::<u64>::new();
@@ -177,9 +177,8 @@ extern "C" fn thread_main<F>(arg: usize) -> !
 where
     F: FnOnce() -> (),
 {
-    let main = arg as *mut ThreadFn<F>;
-    let f = unsafe { main.read().func };
-    f();
+    let main = unsafe { Box::from_raw(arg as *mut ThreadFn<F>) };
+    (main.func)();
     exit_current()
 }
 
@@ -189,8 +188,8 @@ pub fn spawn<F>(func: F)
 where
     F: FnOnce() -> (),
 {
-    let mut arg = Box::leak(Box::new(ThreadFn { func }));
-    spawn_kthread(thread_main::<F>, &raw mut arg as usize);
+    let arg = Box::new(ThreadFn { func });
+    spawn_kthread(thread_main::<F>, Box::into_raw(arg) as usize);
 }
 
 fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
