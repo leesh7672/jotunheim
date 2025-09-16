@@ -18,11 +18,11 @@ pub enum Outcome {
 static ACTIVE: Mutex<bool> = Mutex::new(false);
 pub(crate) static BKPT: Mutex<Option<(u64, u8)>> = Mutex::new(None);
 
-#[inline(always)]
+
 pub fn clear_tf(tf: &mut TrapFrame) {
     tf.rflags &= !(1 << 8);
 }
-#[inline(always)]
+
 pub fn set_tf(tf: &mut TrapFrame) {
     tf.rflags |= 1 << 8;
 }

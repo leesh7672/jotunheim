@@ -17,8 +17,8 @@ use crate::arch::x86_64::tables::{registrate_me, Stack, ISR, STACK_SIZE};
 #[derive(Copy, Clone)]
 pub struct Selectors {
     pub code: SegmentSelector,
-    pub data: SegmentSelector,
-    pub tss: SegmentSelector, // lower TSS slot (e.g., 0x28)
+    pub _data: SegmentSelector,
+    pub _tss: SegmentSelector, // lower TSS slot (e.g., 0x28)
 }
 
 // Singletons
@@ -80,16 +80,11 @@ pub fn init() {
         load_tss(tss);
     }
 
-    let sels = Selectors { code, data, tss };
+    let sels = Selectors { code, _data: data, _tss: tss };
     let _ = SELECTORS.call_once(|| sels);
 }
 
 // ---- Accessors ----
-
-pub fn load() {
-    let gdt = unsafe { &*GDT.as_mut_ptr() };
-    gdt.load();
-}
 
 pub fn selectors() -> Selectors {
     *SELECTORS.get().expect("gdt::init() not called")
@@ -97,12 +92,4 @@ pub fn selectors() -> Selectors {
 
 pub fn code_selector() -> SegmentSelector {
     selectors().code
-}
-
-pub fn data_selector() -> SegmentSelector {
-    selectors().data
-}
-
-pub fn tss_selector() -> SegmentSelector {
-    selectors().tss
 }

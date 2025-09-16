@@ -10,7 +10,7 @@ use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::arch::x86_64::apic::{self, lapic_id};
-use crate::{acpi, kprintln};
+use crate::kprintln;
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
@@ -120,7 +120,7 @@ pub fn init() {
 pub fn registrate_me() {
     access(|e| {
         if let Some(stack) = e.stack.as_mut() {
-            e.stack.as_mut().unwrap().registrate();
+            stack.registrate();
         }
     });
 }

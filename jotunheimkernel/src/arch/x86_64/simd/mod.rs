@@ -3,7 +3,7 @@
 pub mod caps;
 
 use core::arch::asm;
-use core::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv, _xsetbv};
+use core::arch::x86_64::{__cpuid, __cpuid_count, _xsetbv};
 
 const CR0_EM: u64 = 1 << 2;
 const CR0_MP: u64 = 1 << 1;
@@ -66,31 +66,31 @@ pub fn init() {
     let xfeat_hi = d0.edx as u64; // supported bits [63:32]
     let xfeat_mask = xfeat_lo | (xfeat_hi << 32);
 
-    let mut xcr0: u64 = 0;
+    let mut _xcr0: u64 = 0;
     // x87 and SSE must be enabled together for SSE usage
     if (xfeat_mask & (XCR0_X87 | XCR0_SSE)) == (XCR0_X87 | XCR0_SSE) {
-        xcr0 |= XCR0_X87 | XCR0_SSE;
+        _xcr0 |= XCR0_X87 | XCR0_SSE;
     }
     if has_avx && (xfeat_mask & XCR0_YMM) != 0 {
-        xcr0 |= XCR0_YMM;
+        _xcr0 |= XCR0_YMM;
     }
 
     if (cr4 & CR4_OSXSAVE) != 0 {
         unsafe {
-            _xsetbv(0, xcr0);
+            _xsetbv(0, _xcr0);
         } // XCR0
     } else {
         // No OSXSAVE: remain on legacy FXSAVE/FXRSTOR path if you have one.
-        xcr0 = XCR0_X87 | XCR0_SSE; // logical state only
+        _xcr0 = XCR0_X87 | XCR0_SSE; // logical state only
     }
 
     // --- XSAVE area size for current XCR0 ---
     // CPUID.(EAX=0xD,ECX=0).EBX = size required for *current* XCR0 mask
     let d0_after = unsafe { __cpuid_count(0xD, 0) };
-    let mut size = d0_after.ebx as usize;
+    let mut _size = d0_after.ebx as usize;
     // Align to 64 for safety (XSAVE area is naturally 64B-aligned in practice)
-    if size & 63 != 0 {
-        size = (size + 63) & !63;
+    if _size & 63 != 0 {
+        _size = (_size + 63) & !63;
     }
 }
 
@@ -140,9 +140,4 @@ pub fn restore(area: *const u8) {
             }
         }
     }
-}
-
-/// Optional: read back XCR0 (for logging/debug)
-pub fn read_xcr0() -> u64 {
-    unsafe { _xgetbv(0) }
 }

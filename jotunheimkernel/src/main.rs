@@ -37,6 +37,7 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
             serial::init_com2(115_200);
         }
         kprintln!("[JOTUNHEIM] Loaded the kernel.");
+        
         reserved::init(&boot);
         mem::init(&boot);
         mem::seed_usable_from_mmap(&boot);

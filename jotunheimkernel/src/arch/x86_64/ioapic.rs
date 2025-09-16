@@ -4,11 +4,11 @@ const IOAPIC_BASE: usize = 0xFEC0_0000;
 const IOREGSEL: usize = 0x00;
 const IOWIN: usize = 0x10;
 
-#[inline(always)]
+
 unsafe fn ioregsel() -> *mut u32 {
     (IOAPIC_BASE + IOREGSEL) as *mut u32
 }
-#[inline(always)]
+
 unsafe fn iowin() -> *mut u32 {
     (IOAPIC_BASE + IOWIN) as *mut u32
 }

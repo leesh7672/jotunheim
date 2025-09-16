@@ -3,17 +3,16 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
 use core::{
     ptr,
     sync::atomic::{Ordering, compiler_fence},
 };
-use spin::Once;
+
 use x86_64::{instructions::interrupts::without_interrupts};
 
 use crate::{
     acpi::madt,
-    arch::x86_64::{apic, gdt, idt},
+    arch::x86_64::{apic},
     bootinfo::BootInfo,
     kprintln,
     mem,
@@ -31,18 +30,6 @@ pub struct ApBoot {
     pub stack_top: u64,
     pub entry64: u64,
     pub hhdm: u64,
-}
-
-pub struct Topology {
-    pub bsp_lapic_id: u32,
-    pub total_cpus: usize,
-    pub enabled_cpus: usize,
-}
-
-static TOPO: Once<Topology> = Once::new();
-
-pub fn topology() -> Option<&'static Topology> {
-    TOPO.get()
 }
 
 /// Bring all enabled APs online (one-by-one to avoid sharing the same trampoline page)
@@ -159,7 +146,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
 }
 
 /// Very dumb spin delay until you wire your calibrated TSC helper.
-#[inline(always)]
+
 fn spin_delay_us(us: u64) {
     let iters = us.saturating_mul(200);
     for _ in 0..iters {

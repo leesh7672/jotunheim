@@ -16,11 +16,11 @@ static BP_TABLE: Mutex<[Option<Bp>; MAX_BP]> = Mutex::new([None; MAX_BP]);
 // Reinsert after single-step?
 static REPLANT_AFTER_STEP: Mutex<Option<u64>> = Mutex::new(None);
 
-#[inline(always)]
+
 unsafe fn write_byte(addr: u64, val: u8) {
     (addr as *mut u8).write_volatile(val);
 }
-#[inline(always)]
+
 unsafe fn read_byte(addr: u64) -> u8 {
     (addr as *const u8).read_volatile()
 }

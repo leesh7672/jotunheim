@@ -13,23 +13,23 @@ const CR4_OSFXSR: u64 = 1 << 9;
 const CR4_OSXMMEXCPT: u64 = 1 << 10;
 const CR4_OSXSAVE: u64 = 1 << 18;
 
-#[inline(always)]
+
 fn rdcr0() -> u64 {
     let mut v;
     unsafe { core::arch::asm!("mov {}, cr0", out(reg) v) }
     v
 }
-#[inline(always)]
+
 fn wrcr0(v: u64) {
     unsafe { core::arch::asm!("mov cr0, {}", in(reg) v, options(nostack, preserves_flags)) }
 }
-#[inline(always)]
+
 fn rdcr4() -> u64 {
     let mut v;
     unsafe { core::arch::asm!("mov {}, cr4", out(reg) v) }
     v
 }
-#[inline(always)]
+
 fn wrcr4(v: u64) {
     unsafe { core::arch::asm!("mov cr4, {}", in(reg) v, options(nostack, preserves_flags)) }
 }

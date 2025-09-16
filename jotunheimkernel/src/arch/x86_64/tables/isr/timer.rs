@@ -2,7 +2,7 @@ use crate::{arch::x86_64::{apic, tables::ISR}, debug::TrapFrame, sched};
 
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust(tf: &mut TrapFrame) {
+pub extern "C" fn isr_timer_rust(_: &mut TrapFrame) {
     apic::timer_isr_eoi_and_rearm_deadline();
     sched::tick()
 }

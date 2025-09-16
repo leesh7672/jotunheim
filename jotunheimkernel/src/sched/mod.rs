@@ -10,7 +10,6 @@ extern crate alloc;
 
 use crate::arch::x86_64::context::{CpuContext, switch};
 use crate::arch::x86_64::simd::{restore, save};
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -19,7 +18,6 @@ use crate::sched::sched_simd::SimdArea;
 pub enum TaskState {
     Ready,
     Running,
-    Sleeping,
     Dead,
 }
 
@@ -27,11 +25,11 @@ pub type TaskId = u64;
 
 #[derive(Clone, Copy)]
 pub struct Task {
-    pub id: TaskId,
+    pub _id: TaskId,
     pub state: TaskState,
     pub ctx: CpuContext,
     pub simd: SimdArea,
-    pub kstack_top: u64,
+    pub _kstack_top: u64,
     pub time_slice: u32,
 }
 
@@ -50,7 +48,7 @@ struct RunQueue {
 
 static RQ: Mutex<RunQueue> = Mutex::new(RunQueue {
     tasks: [Task {
-        id: 0,
+        _id: 0,
         ctx: CpuContext {
             r15: 0,
             r14: 0,
@@ -75,7 +73,7 @@ static RQ: Mutex<RunQueue> = Mutex::new(RunQueue {
             dump: [0; sched_simd::SIZE],
         },
         state: TaskState::Dead,
-        kstack_top: 0,
+        _kstack_top: 0,
         time_slice: 0,
     }; MAX_TASKS],
     current: 0,
@@ -150,7 +148,7 @@ pub fn init() {
 
         let t = &mut rq.tasks[idx];
         *t = Task {
-            id,
+            _id: id,
             state: TaskState::Ready,
             ctx: CpuContext {
                 // zero GPRs you don’t care about; set the essentials:
@@ -162,7 +160,7 @@ pub fn init() {
             simd: SimdArea {
                 dump: [0; sched_simd::SIZE],
             },
-            kstack_top: top_aligned,
+            _kstack_top: top_aligned,
             time_slice: u32::MAX,
         };
     })
@@ -194,7 +192,7 @@ pub fn spawn_kthread(
 
         let t = &mut rq.tasks[idx];
         *t = Task {
-            id,
+            _id: id,
             state: TaskState::Ready,
             ctx: CpuContext {
                 rip: kthread_trampoline as u64,
@@ -205,7 +203,7 @@ pub fn spawn_kthread(
             simd: SimdArea {
                 dump: [0; sched_simd::SIZE],
             },
-            kstack_top: top_aligned,
+            _kstack_top: top_aligned,
             time_slice: DEFAULT_SLICE,
         };
         id

@@ -72,12 +72,12 @@ const PLX2APIC: u8 = 9;
 
 // ─────────────────────────── helpers ───────────────────────────
 
-#[inline]
+
 fn checksum_ok(bytes: &[u8]) -> bool {
     bytes.iter().fold(0u8, |acc, b| acc.wrapping_add(*b)) == 0
 }
 
-#[inline]
+
 fn read_phys_slice(hhdm: u64, phys: u64, len: usize) -> &'static [u8] {
     unsafe { core::slice::from_raw_parts((hhdm + phys) as *const u8, len) }
 }
@@ -239,7 +239,7 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
                     cpus.push(CpuEntry {
                         apic_id: apic_id as u32,
                         enabled,
-                        is_x2apic: false,
+                        _is_x2apic: false,
                     });
                 }
                 IOAPIC if hdr.len as usize >= 12 => {
@@ -248,9 +248,9 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
                         u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap()) as u64;
                     let gsi = u32::from_le_bytes(madt_bytes[p + 8..p + 12].try_into().unwrap());
                     ioapics.push(IoApic {
-                        id,
-                        mmio_base_phys: base,
-                        gsi_base: gsi,
+                        _id: id,
+                        _mmio_base_phys: base,
+                        _gsi_base: gsi,
                     });
                 }
                 LAPIC_ADDR_OVERRIDE if hdr.len as usize >= 12 => {
@@ -263,7 +263,7 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
                     cpus.push(CpuEntry {
                         apic_id,
                         enabled,
-                        is_x2apic: true,
+                        _is_x2apic: true,
                     });
                 }
                 _ => { /* ignore others for now */ }
@@ -273,9 +273,9 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
         }
 
         let m: _ = MadtInfo {
-            lapic_phys,
+            _lapic_phys: lapic_phys,
             cpus: cpus,
-            ioapics: ioapics,
+            _ioapics: ioapics,
         };
 
         Some(m)

@@ -81,7 +81,7 @@ pub struct BootInfo {
 
 /* ========================== Serial (QEMU stdio) ========================== */
 
-#[inline(always)]
+
 unsafe fn serial_init() {
     const COM1: u16 = 0x3F8;
     asm!("out dx, al", in("dx") COM1 + 1, in("al") 0u8);
@@ -92,7 +92,7 @@ unsafe fn serial_init() {
     asm!("out dx, al", in("dx") COM1 + 2, in("al") 0xC7u8);
     asm!("out dx, al", in("dx") COM1 + 4, in("al") 0x0Bu8);
 }
-#[inline(always)]
+
 unsafe fn serial_putc(c: u8) {
     const COM1: u16 = 0x3F8;
     loop {
@@ -122,7 +122,7 @@ macro_rules! slog {
 
 /* ============================ Small utilities ============================ */
 
-#[inline(always)]
+
 fn log_step(msg: &str) {
     info!("[step] {msg}");
     boot::stall(80_000);
@@ -452,7 +452,7 @@ fn build_pagetables_exec(
 
 /* ========================= Low trampoline (blob) ========================= */
 
-#[inline(always)]
+
 unsafe fn enter_kernel_via_trampoline(
     tramp_page: core::ptr::NonNull<u8>,
     pml4_phys: u64,

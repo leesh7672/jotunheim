@@ -1,6 +1,6 @@
 use x86_64::{
     VirtAddr,
-    structures::paging::{Mapper, Page, PageTableFlags as F, Size2MiB, Size4KiB},
+    structures::paging::{Mapper, Page, PageTableFlags as F, Size4KiB},
 };
 
 fn enforce_mmio_flags<M: Mapper<Size4KiB>>(mapper4k: &mut M, va: u64) {

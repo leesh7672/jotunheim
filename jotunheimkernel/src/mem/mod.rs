@@ -1,9 +1,7 @@
-pub mod mapper;
 pub mod reserved;
 pub mod simple_alloc;
 
 extern crate alloc;
-use alloc::alloc::alloc_zeroed;
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -14,12 +12,12 @@ use linked_list_allocator::Heap as LlHeap;
 use spin::{Mutex, MutexGuard};
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::registers::control::Cr0Flags;
-use x86_64::structures::paging::{FrameDeallocator, PageTableFlags as F, Translate};
+use x86_64::structures::paging::{PageTableFlags as F, Translate};
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags,
-        PhysFrame, Size4KiB, mapper::MapperFlush,
+        PhysFrame, Size4KiB,
     },
 };
 

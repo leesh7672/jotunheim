@@ -84,24 +84,6 @@ fn starts_with(off: usize, total: usize, pat: &[u8]) -> bool {
     true
 }
 
-fn write_hex_u64_into(out: &mut [u8], mut v: u64) -> usize {
-    if v == 0 {
-        out[0] = b'0';
-        return 1;
-    }
-    let mut tmp = [0u8; 16];
-    let mut n = 0usize;
-    while v != 0 {
-        tmp[n] = hex4((v & 0xF) as u8);
-        n += 1;
-        v >>= 4;
-    }
-    for i in 0..n {
-        out[i] = tmp[n - 1 - i];
-    }
-    n
-}
-
 // ─────────────────────────── Packet I/O helpers ──────────────────────────────
 
 fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {

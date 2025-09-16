@@ -44,7 +44,7 @@ const ICR_DST_NONE: u32 = 0 << 18;
 
 // x2APIC MSR mapping base helper (index = offset >> 4)
 const X2_BASE: u32 = 0x800;
-#[inline(always)]
+
 const fn x2(reg: u32) -> u32 {
     X2_BASE + (reg >> 4)
 }
@@ -76,12 +76,10 @@ static DEADLINE_PERIOD_CYC: AtomicU64 = AtomicU64::new(0);
 
 /* ---------- helpers ---------- */
 
-#[inline(always)]
 fn has_x2apic() -> bool {
     unsafe { (__cpuid_count(1, 0).ecx & (1 << 21)) != 0 }
 }
 
-#[inline(always)]
 fn apic_base_from_msr() -> u64 {
     let msr = unsafe { Msr::new(IA32_APIC_BASE).read() };
     let base = msr & 0xFFFF_F000;
@@ -90,46 +88,42 @@ fn apic_base_from_msr() -> u64 {
 
 /* ---------- raw IO ---------- */
 
-#[inline(always)]
 unsafe fn read_phys32(phys: u64, reg: u32) -> u32 {
     unsafe { core::ptr::read_volatile((phys + reg as u64) as *const u32) }
 }
-#[inline(always)]
+
 unsafe fn write_phys32(phys: u64, reg: u32, val: u32) {
     unsafe { core::ptr::write_volatile((phys + reg as u64) as *mut u32, val) }
 }
 
-#[inline(always)]
 unsafe fn read_mmio(base: *mut u32, reg: u32) -> u32 {
     unsafe { core::ptr::read_volatile((base as usize + reg as usize) as *const u32) }
 }
-#[inline(always)]
+
 unsafe fn write_mmio(base: *mut u32, reg: u32, val: u32) {
     unsafe { core::ptr::write_volatile((base as usize + reg as usize) as *mut u32, val) }
 }
 
-#[inline(always)]
 unsafe fn msr_read_u32(reg: u32) -> u32 {
     unsafe { Msr::new(reg).read() as u32 }
 }
-#[inline(always)]
+
 unsafe fn msr_write_u32(reg: u32, val: u32) {
     unsafe { Msr::new(reg).write(val as u64) }
 }
 
 /* ---------- unified accessors ---------- */
 
-#[inline(always)]
 unsafe fn apic_read(reg: u32) -> u32 {
-    match MODE {
+    match unsafe { MODE } {
         Mode::XApicPhys { phys } => unsafe { read_phys32(phys, reg) },
         Mode::XApic { base } => unsafe { read_mmio(base, reg) },
         Mode::X2Apic => unsafe { msr_read_u32(x2(reg)) },
     }
 }
-#[inline(always)]
+
 unsafe fn apic_write(reg: u32, val: u32) {
-    match MODE {
+    match unsafe { MODE } {
         Mode::XApicPhys { phys } => unsafe { write_phys32(phys, reg, val) },
         Mode::XApic { base } => unsafe { write_mmio(base, reg, val) },
         Mode::X2Apic => unsafe { msr_write_u32(x2(reg), val) },
@@ -206,13 +200,12 @@ pub fn paging() {
 /* ---------- common ops ---------- */
 
 pub unsafe fn eoi() {
-    match MODE {
+    match unsafe { MODE } {
         Mode::X2Apic => unsafe { Msr::new(0x80B).write(0) },
         _ => unsafe { apic_write(REG_EOI, 0) },
     }
 }
 
-#[inline(always)]
 fn tpr_write(val: u32) {
     unsafe {
         match MODE {
