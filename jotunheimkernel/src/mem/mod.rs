@@ -326,40 +326,42 @@ impl PagingHeap {
 
 unsafe impl GlobalAlloc for PagingHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut heap = self.inner.lock();
-        if let Ok(nn) = heap.allocate_first_fit(layout) {
-            let p = nn.as_ptr();
-            let size = layout.size().max(1);
-            // map exactly what the caller will touch: [p, p+size)
-            self.ensure_mapped_span(p as u64, (p as u64).saturating_add(size as u64));
-            return p;
-        }
-        drop(heap);
-
-        let cur = self.mapped_end.load(Ordering::Acquire);
-        let grow = 1u64 << 20;
-        let end = cur.saturating_add(grow);
-        self.ensure_mapped_span(cur, end);
-        self.mapped_end.store(end, Ordering::Release);
-
-        let mut heap = self.inner.lock();
-        match heap.allocate_first_fit(layout) {
-            Ok(nn) => {
+        without_interrupts(|| {
+            let mut heap = self.inner.lock();
+            if let Ok(nn) = heap.allocate_first_fit(layout) {
                 let p = nn.as_ptr();
                 let size = layout.size().max(1);
+                // map exactly what the caller will touch: [p, p+size)
                 self.ensure_mapped_span(p as u64, (p as u64).saturating_add(size as u64));
-                p
+                return p;
             }
-            Err(_) => core::ptr::null_mut(),
-        }
+            drop(heap);
+
+            let cur = self.mapped_end.load(Ordering::Acquire);
+            let grow = 1u64 << 20;
+            let end = cur.saturating_add(grow);
+            self.ensure_mapped_span(cur, end);
+            self.mapped_end.store(end, Ordering::Release);
+
+            let mut heap = self.inner.lock();
+            match heap.allocate_first_fit(layout) {
+                Ok(nn) => {
+                    let p = nn.as_ptr();
+                    let size = layout.size().max(1);
+                    self.ensure_mapped_span(p as u64, (p as u64).saturating_add(size as u64));
+                    p
+                }
+                Err(_) => core::ptr::null_mut(),
+            }
+        })
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe {
+        without_interrupts(|| unsafe {
             self.inner
                 .lock()
                 .deallocate(core::ptr::NonNull::new_unchecked(ptr), layout)
-        }
+        })
     }
 }
 

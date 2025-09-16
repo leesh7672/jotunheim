@@ -51,7 +51,6 @@ pub fn topology() -> Option<&'static Topology> {
 ///   - the trampoline has been assembled and findable via `ap_trampoline::blob()`
 ///   - low identity map for `TRAMP_PHYS` page exists
 pub fn boot_all_aps(boot: &BootInfo) {
-    kprintln!("[SMP] Booting the APs.");
     let Some(m) = madt::discover(boot) else {
         kprintln!("[SMP] No MADT; cannot boot APs.");
         return;
@@ -157,8 +156,6 @@ pub fn boot_all_aps(boot: &BootInfo) {
             kprintln!("[SMP] apic_id {} did not signal ready in time", c.apic_id);
         }
     }
-
-    kprintln!("[SMP] All APs attempted.");
 }
 
 /// Very dumb spin delay until you wire your calibrated TSC helper.
