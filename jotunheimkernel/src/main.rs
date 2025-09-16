@@ -37,15 +37,17 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
             serial::init_com2(115_200);
         }
         kprintln!("[JOTUNHEIM] Loaded the kernel.");
-        arch::x86_64::init();
-
         reserved::init(&boot);
         mem::init(&boot);
         mem::seed_usable_from_mmap(&boot);
         mem::init_heap();
         mmio_map::enforce_apic_mmio_flags();
-        apic::paging();
+        
         kprintln!("[JOTUNHEIM] Enabled the memory management.");
+
+        arch::x86_64::init();
+
+        apic::paging();
 
         debug::setup();
 
