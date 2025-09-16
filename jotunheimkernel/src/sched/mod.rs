@@ -274,7 +274,8 @@ where
 {
     without_interrupts(|| {
         let mut guard = RQ.lock();
-        if let Some(mut rq) = guard.take() {
+        let op = guard.as_mut();
+        if let Some(rq) = op {
             f(rq.as_mut())
         } else {
             *guard = Some(Box::new(RunQueue {
