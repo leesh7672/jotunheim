@@ -193,7 +193,7 @@ where
     spawn_kthread(thread_main::<F>, &raw mut arg as usize);
 }
 
-pub fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
+fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let mut stack = Box::new(ThreadStack::new());
     let stack_ptr: *mut u8 = stack.as_mut().dump.as_mut_ptr();
     let top_aligned = ((stack_ptr as usize + STACK_SIZE) & !0xF) as u64; // 16-align
