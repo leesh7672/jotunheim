@@ -3,8 +3,11 @@ pub mod sched_simd;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::u32;
 
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use spin::Mutex;
 use x86_64::instructions::hlt;
+use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;
 
@@ -17,8 +20,7 @@ use crate::sched::sched_simd::SimdArea;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TaskState {
     Ready,
-    Running,
-    Dead,
+    Running
 }
 
 pub type TaskId = u64;
@@ -33,53 +35,19 @@ pub struct Task {
     pub time_slice: u32,
 }
 
-const MAX_TASKS: usize = 128;
 pub const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
 const IDLE_STACK_SIZE: usize = 16 * 1024;
 
 /* ----------------------------- Runqueue container ----------------------------- */
 
 struct RunQueue {
-    tasks: [Task; MAX_TASKS],
+    tasks: Vec<Box<Task>>,
     current: usize,
     next_id: TaskId,
     need_resched: bool,
 }
 
-static RQ: Mutex<RunQueue> = Mutex::new(RunQueue {
-    tasks: [Task {
-        _id: 0,
-        ctx: CpuContext {
-            r15: 0,
-            r14: 0,
-            r13: 0,
-            r12: 0,
-            rbp: 0,
-            rbx: 0,
-            rsp: 0,
-            rip: 0,
-            r11: 0,
-            r10: 0,
-            r9: 0,
-            r8: 0,
-            rsi: 0,
-            rdi: 0,
-            rdx: 0,
-            rcx: 0,
-            rax: 0,
-            rflags: 0,
-        },
-        simd: SimdArea {
-            dump: [0; sched_simd::SIZE],
-        },
-        state: TaskState::Dead,
-        _kstack_top: 0,
-        time_slice: 0,
-    }; MAX_TASKS],
-    current: 0,
-    next_id: 0,
-    need_resched: false,
-});
+static RQ: Mutex<Option<RunQueue>> = Mutex::new(None);
 static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
 
 impl RunQueue {
@@ -140,29 +108,25 @@ pub fn init() {
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
-        let idx = rq
-            .tasks
-            .iter()
-            .position(|t| matches!(t.state, TaskState::Dead))
-            .expect("no slots");
-
-        let t = &mut rq.tasks[idx];
-        *t = Task {
-            _id: id,
-            state: TaskState::Ready,
-            ctx: CpuContext {
-                // zero GPRs you don’t care about; set the essentials:
-                rip: kthread_trampoline as u64, // <- trampoline first
-                rsp: frame as u64,
-                rflags: 0x202,
-                ..CpuContext::default()
-            },
-            simd: SimdArea {
-                dump: [0; sched_simd::SIZE],
-            },
-            _kstack_top: top_aligned,
-            time_slice: u32::MAX,
-        };
+        rq.tasks.insert(
+            0,
+            Box::new(Task {
+                _id: id,
+                state: TaskState::Ready,
+                ctx: CpuContext {
+                    // zero GPRs you don’t care about; set the essentials:
+                    rip: kthread_trampoline as u64, // <- trampoline first
+                    rsp: frame as u64,
+                    rflags: 0x202,
+                    ..CpuContext::default()
+                },
+                simd: SimdArea {
+                    dump: [0; sched_simd::SIZE],
+                },
+                _kstack_top: top_aligned,
+                time_slice: u32::MAX,
+            }),
+        );
     })
 }
 
@@ -184,28 +148,25 @@ pub fn spawn_kthread(
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
-        let idx = rq
-            .tasks
-            .iter()
-            .position(|t| matches!(t.state, TaskState::Dead /* or Void */))
-            .expect("no slots");
 
-        let t = &mut rq.tasks[idx];
-        *t = Task {
-            _id: id,
-            state: TaskState::Ready,
-            ctx: CpuContext {
-                rip: kthread_trampoline as u64,
-                rsp: frame as u64,
-                rflags: 0x202,
-                ..CpuContext::default()
-            },
-            simd: SimdArea {
-                dump: [0; sched_simd::SIZE],
-            },
-            _kstack_top: top_aligned,
-            time_slice: DEFAULT_SLICE,
-        };
+        rq.tasks.insert(
+            0,
+            Box::new(Task {
+                _id: id,
+                state: TaskState::Ready,
+                ctx: CpuContext {
+                    rip: kthread_trampoline as u64,
+                    rsp: frame as u64,
+                    rflags: 0x202,
+                    ..CpuContext::default()
+                },
+                simd: SimdArea {
+                    dump: [0; sched_simd::SIZE],
+                },
+                _kstack_top: top_aligned,
+                time_slice: DEFAULT_SLICE,
+            }),
+        );
         id
     })
 }
@@ -293,7 +254,7 @@ pub fn exit_current() -> ! {
     ensure_init();
     with_rq_locked(|rq| {
         let cur = rq.current;
-        rq.tasks[cur].state = TaskState::Dead;
+        rq.tasks.remove(cur);
     });
     loop {
         x86_64::instructions::hlt();
@@ -311,8 +272,16 @@ fn with_rq_locked<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RunQueue) -> R,
 {
-    x86_64::instructions::interrupts::without_interrupts(|| {
+    without_interrupts(|| {
         let mut guard = RQ.lock();
-        f(&mut guard)
+        if let None = guard.take() {
+            *guard = Some(RunQueue {
+                tasks: Vec::new(),
+                current: 0,
+                next_id: 0,
+                need_resched: false,
+            });
+        }
+        f(guard.as_mut().unwrap())
     })
 }

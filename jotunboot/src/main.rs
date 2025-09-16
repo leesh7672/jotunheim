@@ -29,6 +29,17 @@ const HHDM_BASE: u64 = 0xffff_8880_0000_0000;
 #[global_allocator]
 static ALLOCATOR: uefi::allocator::Allocator = uefi::allocator::Allocator;
 
+/* ================================ Panic ================================== */
+
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! {
+    unsafe {
+        loop {
+            asm!("hlt");
+        }
+    }
+}
+
 /* =========================== Kernel-facing ABI =========================== */
 
 #[repr(C)]
