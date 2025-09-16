@@ -72,11 +72,9 @@ const PLX2APIC: u8 = 9;
 
 // ─────────────────────────── helpers ───────────────────────────
 
-
 fn checksum_ok(bytes: &[u8]) -> bool {
     bytes.iter().fold(0u8, |acc, b| acc.wrapping_add(*b)) == 0
 }
-
 
 fn read_phys_slice(hhdm: u64, phys: u64, len: usize) -> &'static [u8] {
     unsafe { core::slice::from_raw_parts((hhdm + phys) as *const u8, len) }
@@ -153,131 +151,128 @@ fn find_sdt_by_sig_rsdt(hhdm: u64, rsdt_phys: u64, want: &[u8; 4]) -> Option<(u6
 // ───────────────────────── MADT discovery ─────────────────────────
 
 pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
-    without_interrupts(|| {
-        if boot.rsdp_addr == 0 {
-            kprintln!("[acpi] RSDP address is 0");
-            return None;
-        }
+    if boot.rsdp_addr == 0 {
+        kprintln!("[acpi] RSDP address is 0");
+        return None;
+    }
 
-        // Read first 20 bytes for ACPI 1.0 view
-        let r1_bytes = read_phys_slice(boot.hhdm_base, boot.rsdp_addr, size_of::<Rsdp10>());
-        if &r1_bytes[0..8] != b"RSD PTR " || !checksum_ok(r1_bytes) {
-            kprintln!("[acpi] Bad RSDP signature or v1 checksum");
-            return None;
-        }
-        // Safe to cast to Rsdp10 now
-        let rsdp10: &Rsdp10 = unsafe { &*(r1_bytes.as_ptr() as *const Rsdp10) };
-        let rev = rsdp10.rev;
+    // Read first 20 bytes for ACPI 1.0 view
+    let r1_bytes = read_phys_slice(boot.hhdm_base, boot.rsdp_addr, size_of::<Rsdp10>());
+    if &r1_bytes[0..8] != b"RSD PTR " || !checksum_ok(r1_bytes) {
+        kprintln!("[acpi] Bad RSDP signature or v1 checksum");
+        return None;
+    }
+    // Safe to cast to Rsdp10 now
+    let rsdp10: &Rsdp10 = unsafe { &*(r1_bytes.as_ptr() as *const Rsdp10) };
+    let rev = rsdp10.rev;
 
-        // If revision >= 2, read extended RSDP and validate ext checksum
-        let mut xsdt_addr: u64 = 0;
-        if rev >= 2 {
-            let r2_bytes = read_phys_slice(boot.hhdm_base, boot.rsdp_addr, size_of::<Rsdp20>());
-            let rsdp20: &Rsdp20 = unsafe { &*(r2_bytes.as_ptr() as *const Rsdp20) };
-            // ACPI 2.0+: ext checksum over 'length' bytes
-            let total_len = rsdp20.length as usize;
-            if total_len >= size_of::<Rsdp20>()
-                && checksum_ok(read_phys_slice(boot.hhdm_base, boot.rsdp_addr, total_len))
-            {
-                xsdt_addr = rsdp20.xsdt_addr;
-            } else {
-                // ext checksum failed; still can fall back to RSDT
-                xsdt_addr = 0;
-            }
-        }
-
-        // Prefer XSDT if present and valid; else use RSDT
-        let madt = if xsdt_addr != 0 {
-            if let Some((madt_phys, madt_len)) =
-                find_sdt_by_sig_xsdt(boot.hhdm_base, xsdt_addr, b"APIC")
-            {
-                Some((madt_phys, madt_len))
-            } else {
-                // XSDT path failed; try RSDT as fallback
-                if rsdp10.rsdt_addr != 0 {
-                    find_sdt_by_sig_rsdt(boot.hhdm_base, rsdp10.rsdt_addr as u64, b"APIC")
-                } else {
-                    None
-                }
-            }
+    // If revision >= 2, read extended RSDP and validate ext checksum
+    let mut xsdt_addr: u64 = 0;
+    if rev >= 2 {
+        let r2_bytes = read_phys_slice(boot.hhdm_base, boot.rsdp_addr, size_of::<Rsdp20>());
+        let rsdp20: &Rsdp20 = unsafe { &*(r2_bytes.as_ptr() as *const Rsdp20) };
+        // ACPI 2.0+: ext checksum over 'length' bytes
+        let total_len = rsdp20.length as usize;
+        if total_len >= size_of::<Rsdp20>()
+            && checksum_ok(read_phys_slice(boot.hhdm_base, boot.rsdp_addr, total_len))
+        {
+            xsdt_addr = rsdp20.xsdt_addr;
         } else {
+            // ext checksum failed; still can fall back to RSDT
+            xsdt_addr = 0;
+        }
+    }
+
+    // Prefer XSDT if present and valid; else use RSDT
+    let madt = if xsdt_addr != 0 {
+        if let Some((madt_phys, madt_len)) =
+            find_sdt_by_sig_xsdt(boot.hhdm_base, xsdt_addr, b"APIC")
+        {
+            Some((madt_phys, madt_len))
+        } else {
+            // XSDT path failed; try RSDT as fallback
             if rsdp10.rsdt_addr != 0 {
                 find_sdt_by_sig_rsdt(boot.hhdm_base, rsdp10.rsdt_addr as u64, b"APIC")
             } else {
                 None
             }
-        };
+        }
+    } else {
+        if rsdp10.rsdt_addr != 0 {
+            find_sdt_by_sig_rsdt(boot.hhdm_base, rsdp10.rsdt_addr as u64, b"APIC")
+        } else {
+            None
+        }
+    };
 
-        let (madt_phys, madt_len) = match madt {
-            Some(v) => v,
-            None => {
-                kprintln!("[acpi] MADT not found via XSDT/RSDT");
-                return None;
-            }
-        };
+    let (madt_phys, madt_len) = match madt {
+        Some(v) => v,
+        None => {
+            kprintln!("[acpi] MADT not found via XSDT/RSDT");
+            return None;
+        }
+    };
 
-        let madt_bytes = read_phys_slice(boot.hhdm_base, madt_phys, madt_len as usize);
-        let mh: &MadtHeader = unsafe { &*(madt_bytes.as_ptr() as *const MadtHeader) };
+    let madt_bytes = read_phys_slice(boot.hhdm_base, madt_phys, madt_len as usize);
+    let mh: &MadtHeader = unsafe { &*(madt_bytes.as_ptr() as *const MadtHeader) };
 
-        let mut lapic_phys = mh.lapic_mmio as u64;
-        let mut cpus: Vec<CpuEntry> = Vec::new();
-        let mut ioapics: Vec<IoApic> = Vec::new();
+    let mut lapic_phys = mh.lapic_mmio as u64;
+    let mut cpus: Vec<CpuEntry> = Vec::new();
+    let mut ioapics: Vec<IoApic> = Vec::new();
 
-        let mut p = size_of::<MadtHeader>() as usize;
-        while p + size_of::<MadtEntryHeader>() <= madt_len as usize {
-            let hdr: &MadtEntryHeader =
-                unsafe { &*(madt_bytes[p..].as_ptr() as *const MadtEntryHeader) };
-            if hdr.len as usize == 0 {
-                break;
-            }
-
-            match hdr.typ {
-                PLAPIC if hdr.len as usize >= 8 => {
-                    let apic_id = madt_bytes[p + 3];
-                    let flags = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap());
-                    let enabled = (flags & 1) != 0;
-                    cpus.push(CpuEntry {
-                        apic_id: apic_id as u32,
-                        enabled,
-                        _is_x2apic: false,
-                    });
-                }
-                IOAPIC if hdr.len as usize >= 12 => {
-                    let id = madt_bytes[p + 2];
-                    let base =
-                        u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap()) as u64;
-                    let gsi = u32::from_le_bytes(madt_bytes[p + 8..p + 12].try_into().unwrap());
-                    ioapics.push(IoApic {
-                        _id: id,
-                        _mmio_base_phys: base,
-                        _gsi_base: gsi,
-                    });
-                }
-                LAPIC_ADDR_OVERRIDE if hdr.len as usize >= 12 => {
-                    lapic_phys = u64::from_le_bytes(madt_bytes[p + 4..p + 12].try_into().unwrap());
-                }
-                PLX2APIC if hdr.len as usize >= 16 => {
-                    let apic_id = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap());
-                    let flags = u32::from_le_bytes(madt_bytes[p + 8..p + 12].try_into().unwrap());
-                    let enabled = (flags & 1) != 0;
-                    cpus.push(CpuEntry {
-                        apic_id,
-                        enabled,
-                        _is_x2apic: true,
-                    });
-                }
-                _ => { /* ignore others for now */ }
-            }
-
-            p += hdr.len as usize;
+    let mut p = size_of::<MadtHeader>() as usize;
+    while p + size_of::<MadtEntryHeader>() <= madt_len as usize {
+        let hdr: &MadtEntryHeader =
+            unsafe { &*(madt_bytes[p..].as_ptr() as *const MadtEntryHeader) };
+        if hdr.len as usize == 0 {
+            break;
         }
 
-        let m: _ = MadtInfo {
-            _lapic_phys: lapic_phys,
-            cpus: cpus,
-            _ioapics: ioapics,
-        };
+        match hdr.typ {
+            PLAPIC if hdr.len as usize >= 8 => {
+                let apic_id = madt_bytes[p + 3];
+                let flags = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap());
+                let enabled = (flags & 1) != 0;
+                cpus.push(CpuEntry {
+                    apic_id: apic_id as u32,
+                    enabled,
+                    _is_x2apic: false,
+                });
+            }
+            IOAPIC if hdr.len as usize >= 12 => {
+                let id = madt_bytes[p + 2];
+                let base = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap()) as u64;
+                let gsi = u32::from_le_bytes(madt_bytes[p + 8..p + 12].try_into().unwrap());
+                ioapics.push(IoApic {
+                    _id: id,
+                    _mmio_base_phys: base,
+                    _gsi_base: gsi,
+                });
+            }
+            LAPIC_ADDR_OVERRIDE if hdr.len as usize >= 12 => {
+                lapic_phys = u64::from_le_bytes(madt_bytes[p + 4..p + 12].try_into().unwrap());
+            }
+            PLX2APIC if hdr.len as usize >= 16 => {
+                let apic_id = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap());
+                let flags = u32::from_le_bytes(madt_bytes[p + 8..p + 12].try_into().unwrap());
+                let enabled = (flags & 1) != 0;
+                cpus.push(CpuEntry {
+                    apic_id,
+                    enabled,
+                    _is_x2apic: true,
+                });
+            }
+            _ => { /* ignore others for now */ }
+        }
 
-        Some(m)
-    })
+        p += hdr.len as usize;
+    }
+
+    let m: _ = MadtInfo {
+        _lapic_phys: lapic_phys,
+        cpus: cpus,
+        _ioapics: ioapics,
+    };
+
+    Some(m)
 }

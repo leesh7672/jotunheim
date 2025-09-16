@@ -48,8 +48,6 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
 
         arch::x86_64::init();
 
-        apic::paging();
-
         debug::setup();
 
         sched::init();
