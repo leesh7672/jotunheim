@@ -20,7 +20,7 @@ use crate::sched::sched_simd::SimdArea;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TaskState {
     Ready,
-    Running
+    Running,
 }
 
 pub type TaskId = u64;
@@ -47,7 +47,7 @@ struct RunQueue {
     need_resched: bool,
 }
 
-static RQ: Mutex<Option<RunQueue>> = Mutex::new(None);
+static RQ: Mutex<Option<Box<RunQueue>>> = Mutex::new(None);
 static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
 
 impl RunQueue {
@@ -274,14 +274,16 @@ where
 {
     without_interrupts(|| {
         let mut guard = RQ.lock();
-        if let None = guard.take() {
-            *guard = Some(RunQueue {
+        if let Some(mut rq) = guard.take() {
+            f(rq.as_mut())
+        } else {
+            *guard = Some(Box::new(RunQueue {
                 tasks: Vec::new(),
                 current: 0,
                 next_id: 0,
                 need_resched: false,
-            });
+            }));
+            with_rq_locked(f)
         }
-        f(guard.as_mut().unwrap())
     })
 }
