@@ -4,7 +4,7 @@ pub mod simple_alloc;
 
 extern crate alloc;
 use alloc::alloc::alloc_zeroed;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{fence, AtomicU64, Ordering};
 use core::{
     alloc::{GlobalAlloc, Layout},
     sync::atomic::AtomicBool,
@@ -12,6 +12,7 @@ use core::{
 use heapless::Vec as HVec;
 use linked_list_allocator::Heap as LlHeap;
 use spin::{Mutex, MutexGuard};
+use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::registers::control::Cr0Flags;
 use x86_64::structures::paging::{FrameDeallocator, PageTableFlags as F, Translate};
 use x86_64::{
@@ -21,6 +22,8 @@ use x86_64::{
         PhysFrame, Size4KiB, mapper::MapperFlush,
     },
 };
+
+static PT_LOCK: Mutex<()> = Mutex::new(());
 
 use crate::bootinfo::BootInfo;
 use crate::kprintln;
@@ -47,6 +50,18 @@ fn align_down(x: u64, a: u64) -> u64 {
 
 fn align_up(x: u64, a: u64) -> u64 {
     (x + (a - 1)) & !(a - 1)
+}
+
+fn pt_locked<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    without_interrupts(|| {
+        let g = PT_LOCK.lock();
+        let r: R = f();
+        drop(g);
+        r
+    })
 }
 
 pub fn init(boot: &BootInfo) {
@@ -97,13 +112,15 @@ fn map_4k(
     flags: F,
     fa: &mut impl FrameAllocator<Size4KiB>,
 ) {
-    use x86_64::{PhysAddr, VirtAddr, structures::paging::*};
-    let pa_aligned = (pa_mask_52(pa)) & !0xFFF;
-    let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(pa_aligned));
-    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
-    unsafe {
-        mapper.map_to(page, frame, flags, fa).unwrap().flush();
-    }
+    pt_locked(|| {
+        use x86_64::{PhysAddr, VirtAddr, structures::paging::*};
+        let pa_aligned = (pa_mask_52(pa)) & !0xFFF;
+        let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(pa_aligned));
+        let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
+        unsafe {
+            mapper.map_to(page, frame, flags, fa).unwrap().flush();
+        }
+    })
 }
 
 const fn pa_mask_52(x: u64) -> u64 {
@@ -114,50 +131,48 @@ const fn pa_mask_52(x: u64) -> u64 {
 /// Map a physical MMIO region at a dedicated VA (not inside HHDM), 4 KiB pages, NO_CACHE.
 /// Returns the VA base address.
 pub fn map_mmio(pa: u64, len: usize) -> u64 {
-    use x86_64::{PhysAddr, VirtAddr, structures::paging::*};
+    pt_locked(|| {
+        let pa0 = pa_mask_52(pa) & !0xFFF;
+        let pend = pa_mask_52(pa + len as u64 + 0xFFF) & !0xFFF;
+        let size = pend - pa0;
+        let off = pa - pa0;
 
-    let pa0 = pa_mask_52(pa) & !0xFFF;
-    let pend = pa_mask_52(pa + len as u64 + 0xFFF) & !0xFFF;
-    let size = pend - pa0;
-    let off = pa - pa0;
+        let va0 = NEXT_MMIO_VA.fetch_add(size, Ordering::SeqCst);
 
-    let va0 = NEXT_MMIO_VA.fetch_add(size, Ordering::SeqCst);
+        let mut mapper = active_mapper();
+        let mut fa = TinyAllocGuard::new().expect("map_mmio: no frames");
+        let flags = F::PRESENT | F::WRITABLE | F::NO_CACHE | F::NO_EXECUTE;
 
-    let mut mapper = active_mapper();
-    let mut fa = TinyAllocGuard::new().expect("map_mmio: no frames");
-    let flags = F::PRESENT | F::WRITABLE | F::NO_CACHE | F::NO_EXECUTE;
-
-    let mut pa_cur = pa0;
-    let mut va_cur = va0;
-    while pa_cur < pend {
-        // SAFETY: pa_cur is masked to 52 bits and 4K aligned
-        let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(pa_cur));
-        let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_cur));
-        unsafe {
-            mapper.map_to(page, frame, flags, &mut fa).unwrap().flush();
+        let mut pa_cur = pa0;
+        let mut va_cur = va0;
+        while pa_cur < pend {
+            // SAFETY: pa_cur is masked to 52 bits and 4K aligned
+            let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(pa_cur));
+            let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va_cur));
+            unsafe {
+                mapper.map_to(page, frame, flags, &mut fa).unwrap().flush();
+            }
+            pa_cur += 0x1000;
+            va_cur += 0x1000;
         }
-        pa_cur += 0x1000;
-        va_cur += 0x1000;
-    }
-    va0 + off
+        va0 + off
+    })
 }
 
 pub fn map_identity_4k(phys: u64) {
-    use x86_64::{
-        PhysAddr, VirtAddr,
-        structures::paging::{Page, PageTableFlags as F, PhysFrame, Size4KiB},
-    };
-    let mut mapper = active_mapper();
-    let mut fa = TinyAllocGuard::new().expect("idmap4k: no frames");
-    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(phys));
-    let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(phys));
-    unsafe {
-        match mapper.map_to(page, frame, F::PRESENT | F::WRITABLE | F::GLOBAL, &mut fa) {
-            Ok(flush) => flush.flush(),
-            Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(_)) => {}
-            Err(e) => panic!("idmap4k({:#x}) failed: {:?}", phys, e),
+    pt_locked(|| {
+        let mut mapper = active_mapper();
+        let mut fa = TinyAllocGuard::new().expect("idmap4k: no frames");
+        let page = Page::<Size4KiB>::containing_address(VirtAddr::new(phys));
+        let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(phys));
+        unsafe {
+            match mapper.map_to(page, frame, F::PRESENT | F::WRITABLE | F::GLOBAL, &mut fa) {
+                Ok(flush) => flush.flush(),
+                Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(_)) => {}
+                Err(e) => panic!("idmap4k({:#x}) failed: {:?}", phys, e),
+            }
         }
-    }
+    })
 }
 
 pub fn alloc_one_phys_page_hhdm() -> (u64, u64) {
@@ -188,11 +203,11 @@ pub fn init_heap() {
             F::PRESENT | F::WRITABLE | F::GLOBAL | F::NO_EXECUTE,
             &mut fa,
         );
-        unsafe {
-            GLOBAL_ALLOC.init(KHEAP_START as *mut u8, KHEAP_SIZE);
-        }
-        HEAP_READY.store(true, Ordering::SeqCst);
     }
+    unsafe {
+        GLOBAL_ALLOC.init(KHEAP_START as *mut u8, KHEAP_SIZE);
+    }
+    HEAP_READY.store(true, Ordering::SeqCst);
 }
 
 /// VMAP-backed anonymous pages outside KHEAP. Does its own VA reservation + PFN mapping.
@@ -245,10 +260,6 @@ unsafe impl<'a> FrameAllocator<Size4KiB> for TinyAllocGuard<'a> {
     }
 }
 
-struct NoopDealloc;
-impl FrameDeallocator<Size4KiB> for NoopDealloc {
-    unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {}
-}
 pub struct PagingHeap {
     inner: Mutex<LlHeap>,
     mapped_end: AtomicU64, // [KHEAP_START .. mapped_end) is backed by frames
@@ -262,37 +273,49 @@ impl PagingHeap {
         }
     }
     fn ensure_mapped_span(&self, start: u64, end: u64) {
-        use x86_64::{
-            VirtAddr,
-            structures::paging::{
-                Mapper, Page, PageTableFlags as F, Size4KiB, Translate,
-            },
-        };
+        pt_locked(|| {
+            let mut mapper = active_mapper();
+            let mut fa = TinyAllocGuard::new().expect("heap map: TinyBump not ready");
 
-        let mut mapper = active_mapper();
-        let mut fa = TinyAllocGuard::new().expect("heap map: TinyBump not ready");
-
-        let mut va = start & !0xfff;
-        let end_al = (end + 0xfff) & !0xfff;
-
-        while va < end_al {
-            if mapper.translate_addr(VirtAddr::new(va)).is_none() {
-                let pf = fa.allocate_frame().expect("heap map: out of frames");
-                unsafe {
-                    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
-                    let flush = mapper
-                        .map_to(
+            let mut va = start & !0xfff;
+            let end_al = (end + 0xfff) & !0xfff;
+            while va < end_al {
+                if mapper.translate_addr(VirtAddr::new(va)).is_none() {
+                    let pf = fa.allocate_frame().expect("heap map: out of frames");
+                    unsafe {
+                        let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
+                        match mapper.map_to_with_table_flags(
                             page,
                             pf,
                             F::PRESENT | F::WRITABLE | F::GLOBAL | F::NO_EXECUTE,
+                            F::PRESENT | F::WRITABLE,
                             &mut fa,
-                        )
-                        .expect("heap map_to failed");
-                    flush.flush();
+                        ) {
+                            Ok(flush) => {
+                                flush.flush();
+                                fence(Ordering::SeqCst);
+                            }
+                            Err(
+                                x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(
+                                    _,
+                                ),
+                            ) => {
+                                // Another thread mapped it since our translate; just ensure flags.
+                                mapper
+                                    .update_flags(
+                                        page,
+                                        F::PRESENT | F::WRITABLE | F::GLOBAL | F::NO_EXECUTE,
+                                    )
+                                    .unwrap()
+                                    .flush();
+                            }
+                            Err(e) => panic!("heap map_to failed @va={:#x}: {:?}", va, e),
+                        }
+                    }
                 }
+                va += 4096;
             }
-            va += 4096;
-        }
+        })
     }
 
     pub unsafe fn init(&self, start: *mut u8, size: usize) {
@@ -303,7 +326,6 @@ impl PagingHeap {
 
 unsafe impl GlobalAlloc for PagingHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // 1) try to allocate
         let mut heap = self.inner.lock();
         if let Ok(nn) = heap.allocate_first_fit(layout) {
             let p = nn.as_ptr();
@@ -314,7 +336,6 @@ unsafe impl GlobalAlloc for PagingHeap {
         }
         drop(heap);
 
-        // 2) grow mapping by +1 MiB after the current watermark, then retry
         let cur = self.mapped_end.load(Ordering::Acquire);
         let grow = 1u64 << 20;
         let end = cur.saturating_add(grow);

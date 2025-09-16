@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 // src/acpi/mod.rs
 pub mod madt;
 
@@ -15,9 +17,9 @@ pub struct IoApic {
     pub gsi_base: u32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct MadtInfo {
     pub lapic_phys: u64, // Local APIC MMIO (may be overridden)
-    pub cpus: &'static [CpuEntry],
-    pub ioapics: &'static [IoApic],
+    pub cpus: Vec<CpuEntry>,
+    pub ioapics: Vec<IoApic>,
 }
