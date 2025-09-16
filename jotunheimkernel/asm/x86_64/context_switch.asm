@@ -54,11 +54,11 @@ __ctx_switch:
     push    qword [rdx+0x88]
     popfq
     ; Push next RIP on next stack, then set arg regs and RET
-    mov     r10, [rdx+0x80]           ; may #PF if next.ctx+0x80 unmapped
     mov     rdi, [rdx+0x40]
     mov     rsi, [rdx+0x48]
+    push    qword [rdx+0x80]           ; may #PF if next.ctx+0x80 unmapped
     mov     rdx, [rdx+0x60]            ; now safe to restore RDX (BASE no longer needed)
-    jmp r10
+    ret
 
 .ret_here:
     ret
