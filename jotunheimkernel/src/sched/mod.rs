@@ -12,6 +12,7 @@ extern crate alloc;
 
 use crate::arch::x86_64::context::{CpuContext, switch};
 use crate::arch::x86_64::simd::{restore, save};
+use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -139,9 +140,11 @@ pub fn init() {
             }),
         );
     });
+}
+
+pub fn smp() {
     spawn(|| {
         loop {
-            hlt();
             with_rq_locked(|rq| {
                 let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
                 let mut deads = Vec::<u64>::new();
@@ -161,7 +164,10 @@ pub fn init() {
                     }
                     tasks.remove(i);
                 }
-            })
+            });
+            for _ in 0..1000000 {
+                sleep();
+            }
         }
     });
 }
@@ -228,6 +234,55 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         );
         id
     })
+}
+
+pub fn sleep() {
+    let Some((prev, next)) = with_rq_locked(|rq| {
+        let current = rq.current;
+        let next;
+        {
+            let picked = rq.pick_next();
+            if picked.is_none() {
+                return None;
+            } else {
+                next = picked.unwrap();
+            }
+        }
+        {
+            if next == current {
+                rq.need_resched = false;
+                return None;
+            }
+            {
+                let t = rq.tasks[current].as_mut();
+                if t.time_slice != u32::MAX {
+                    t.state = TaskState::Ready;
+                    t.time_slice = DEFAULT_SLICE;
+                }
+            }
+        }
+        rq.tasks[next].as_mut().state = TaskState::Running;
+
+        let (prev_ctx, prev_simd) = {
+            let prev = rq.tasks[current].as_mut();
+            (&mut prev.ctx as *mut CpuContext, prev.simd.as_mut_ptr())
+        };
+        let (next_ctx, next_simd) = {
+            let next = rq.tasks[next].as_mut();
+            (&next.ctx as *const CpuContext, next.simd.as_mut_ptr())
+        };
+
+        rq.current = next;
+        rq.need_resched = false;
+
+        save(prev_simd);
+        restore(next_simd);
+        Some((prev_ctx, next_ctx))
+    }) else {
+        hlt();
+        return;
+    };
+    switch(prev, next);
 }
 
 pub fn tick() {

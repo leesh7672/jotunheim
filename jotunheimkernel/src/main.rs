@@ -40,8 +40,8 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         arch::x86_64::init();
         sched::init();
         sched::spawn(|| {
-            kprintln!("[JOTUNHEIM] Started the main thread.");
             boot_all_aps(&boot);
+            sched::smp();
         });
         debug::setup();
     });
