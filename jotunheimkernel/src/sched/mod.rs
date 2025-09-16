@@ -21,6 +21,7 @@ use crate::sched::sched_simd::SimdArea;
 pub enum TaskState {
     Ready,
     Running,
+    Dead,
 }
 
 pub type TaskId = u64;
@@ -33,10 +34,10 @@ pub struct Task {
     pub simd: SimdArea,
     pub _kstack_top: u64,
     pub time_slice: u32,
+    _stack: Box<ThreadStack>,
 }
 
 pub const DEFAULT_SLICE: u32 = 5; // 5ms at 1 kHz
-const IDLE_STACK_SIZE: usize = 16 * 1024;
 
 /* ----------------------------- Runqueue container ----------------------------- */
 
@@ -48,7 +49,6 @@ struct RunQueue {
 }
 
 static RQ: Mutex<Option<Box<RunQueue>>> = Mutex::new(None);
-static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
 
 impl RunQueue {
     fn pick_next(&self) -> Option<usize> {
@@ -75,6 +75,23 @@ impl RunQueue {
     }
 }
 
+/* Thread Stack */
+
+const STACK_SIZE: usize = 0x8000;
+
+#[derive(Clone, Debug)]
+struct ThreadStack {
+    dump: Box<[u8; STACK_SIZE]>,
+}
+
+impl ThreadStack {
+    fn new() -> Self {
+        ThreadStack {
+            dump: Box::new([0; STACK_SIZE]),
+        }
+    }
+}
+
 /* --------------------------------- Utilities --------------------------------- */
 
 extern "C" fn idle_main(_arg: usize) -> ! {
@@ -85,20 +102,14 @@ extern "C" fn idle_main(_arg: usize) -> ! {
 
 /* --------------------------------- Init path --------------------------------- */
 
-static INIT_DONE: AtomicBool = AtomicBool::new(false);
-
-fn ensure_init() {
-    if !INIT_DONE.load(Ordering::SeqCst) {
-        init();
-    }
-}
-
 unsafe extern "C" {
     fn kthread_trampoline() -> !;
 }
 
 pub fn init() {
-    let top_aligned = ((&raw const IDLE_STACK as usize + IDLE_STACK_SIZE) & !0xF) as u64; // 16-align
+    let mut stack = Box::new(ThreadStack::new());
+    let stack_ptr: *mut u8 = stack.as_mut().dump.as_mut_ptr();
+    let top_aligned = ((stack_ptr as usize + STACK_SIZE) & !0xF) as u64; // 16-align
     let frame = (top_aligned - 16) as *mut u64; // space for [arg][entry]
     unsafe {
         core::ptr::write(frame.add(0), 0 as u64);
@@ -125,19 +136,67 @@ pub fn init() {
                 },
                 _kstack_top: top_aligned,
                 time_slice: u32::MAX,
+                _stack: stack,
             }),
         );
-    })
+    });
+    spawn(|| {
+        loop {
+            with_rq_locked(|rq| {
+                let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
+                let mut deads = Vec::<u64>::new();
+                for task in tasks.iter_mut() {
+                    if task.state == TaskState::Dead {
+                        if task.time_slice == 0 {
+                            deads.insert(0, task._id);
+                        } else {
+                            task.time_slice -= 1;
+                        }
+                    }
+                }
+                for id in deads {
+                    let mut i = 0;
+                    while id == tasks[i]._id {
+                        i += 1;
+                    }
+                    tasks.remove(i);
+                }
+            })
+        }
+    });
+}
+
+struct ThreadFn<F>
+where
+    F: FnOnce() -> (),
+{
+    func: F,
+}
+
+extern "C" fn thread_main<F>(arg: usize) -> !
+where
+    F: FnOnce() -> (),
+{
+    let main = arg as *mut ThreadFn<F>;
+    let f = unsafe { main.read().func };
+    f();
+    exit_current()
 }
 
 /* ------------------------------- Public API ---------------------------------- */
-pub fn spawn_kthread(
-    entry: extern "C" fn(usize) -> !,
-    arg: usize,
-    stack_ptr: *mut u8,
-    stack_len: usize,
-) -> TaskId {
-    let top_aligned = ((stack_ptr as usize + stack_len) & !0xF) as u64; // 16-align
+
+pub fn spawn<F>(func: F)
+where
+    F: FnOnce() -> (),
+{
+    let mut arg = Box::leak(Box::new(ThreadFn { func }));
+    spawn_kthread(thread_main::<F>, &raw mut arg as usize);
+}
+
+pub fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
+    let mut stack = Box::new(ThreadStack::new());
+    let stack_ptr: *mut u8 = stack.as_mut().dump.as_mut_ptr();
+    let top_aligned = ((stack_ptr as usize + STACK_SIZE) & !0xF) as u64; // 16-align
     let frame = (top_aligned - 16) as *mut u64; // space for [arg][entry]
     unsafe {
         // [0] = arg, [1] = entry
@@ -165,6 +224,7 @@ pub fn spawn_kthread(
                 },
                 _kstack_top: top_aligned,
                 time_slice: DEFAULT_SLICE,
+                _stack: stack,
             }),
         );
         id
@@ -251,10 +311,10 @@ pub fn tick() {
 /* ------------------------------ Core switching ------------------------------- */
 
 pub fn exit_current() -> ! {
-    ensure_init();
     with_rq_locked(|rq| {
-        let cur = rq.current;
-        rq.tasks.remove(cur);
+        let task = rq.tasks[rq.current].as_mut();
+        task.state = TaskState::Dead;
+        task.time_slice = DEFAULT_SLICE * 2;
     });
     loop {
         x86_64::instructions::hlt();
