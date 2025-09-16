@@ -284,7 +284,7 @@ where
                 next_id: 0,
                 need_resched: false,
             }));
-            with_rq_locked(f)
+            f(guard.as_mut().unwrap().as_mut())
         }
     })
 }
