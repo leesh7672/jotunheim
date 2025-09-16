@@ -28,13 +28,13 @@ pub fn set_tf(tf: &mut TrapFrame) {
 }
 
 pub fn setup() {
-    kprintln!("[JOTUNHEIM] Waiting a debugger.");
     if cfg!(debug_assertions) {
+        kprintln!("[JOTUNHEIM] Waiting a debugger.");
         unsafe {
             core::arch::asm!("int3");
         }
+        kprintln!("[JOTUNHEIM] Connected the debugger.");
     }
-    kprintln!("[JOTUNHEIM] Connected the debugger.");
 }
 
 pub mod rsp {
