@@ -26,7 +26,7 @@ pub struct TrapFrame {
     pub ss: u64,
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 #[repr(C)]
 pub struct CpuContext {
     pub r15: u64,

@@ -25,7 +25,7 @@ pub enum TaskState {
 
 pub type TaskId = u64;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Debug)]
 pub struct Task {
     pub _id: TaskId,
     pub state: TaskState,
@@ -150,7 +150,7 @@ pub fn spawn_kthread(
         rq.next_id += 1;
 
         rq.tasks.insert(
-            0,
+            1,
             Box::new(Task {
                 _id: id,
                 state: TaskState::Ready,
@@ -175,19 +175,19 @@ pub fn tick() {
     let Some((prev_ctx, next_ctx)) = with_rq_locked(|rq| {
         let current = rq.current;
         {
-            let t = &mut rq.tasks[current];
+            let t = rq.tasks[current].as_mut();
             if t.time_slice != u32::MAX && t.time_slice > 0 {
                 t.time_slice -= 1;
                 if t.time_slice == 0 {
-                    t.state = TaskState::Ready;
                     t.time_slice = DEFAULT_SLICE;
                     rq.need_resched = true;
                 }
             }
         }
+
         let cur_is_idle;
         {
-            let t = &rq.tasks[current];
+            let t = rq.tasks[current].as_mut();
             cur_is_idle = t.time_slice == u32::MAX;
         }
 
@@ -218,21 +218,21 @@ pub fn tick() {
                     return None;
                 }
                 {
-                    let t = &mut rq.tasks[current];
+                    let t = rq.tasks[current].as_mut();
                     if t.time_slice != u32::MAX {
                         t.state = TaskState::Ready;
                         t.time_slice = DEFAULT_SLICE;
                     }
                 }
             }
-            rq.tasks[next].state = TaskState::Running;
+            rq.tasks[next].as_mut().state = TaskState::Running;
 
             let (prev_ctx, prev_simd) = {
-                let prev = &mut rq.tasks[current];
+                let prev = rq.tasks[current].as_mut();
                 (&mut prev.ctx as *mut CpuContext, prev.simd.as_mut_ptr())
             };
             let (next_ctx, next_simd) = {
-                let next = &mut rq.tasks[next];
+                let next = rq.tasks[next].as_mut();
                 (&next.ctx as *const CpuContext, next.simd.as_mut_ptr())
             };
 
