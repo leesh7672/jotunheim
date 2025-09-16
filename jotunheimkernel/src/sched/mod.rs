@@ -80,6 +80,7 @@ impl RunQueue {
 const STACK_SIZE: usize = 0x80000;
 
 #[derive(Clone, Debug)]
+#[repr(C, align(0x80))]
 struct ThreadStack {
     dump: Box<[u8; STACK_SIZE]>,
 }
@@ -103,7 +104,7 @@ extern "C" fn idle_main(_arg: usize) -> ! {
 /* --------------------------------- Init path --------------------------------- */
 
 unsafe extern "C" {
-    fn kthread_trampoline() -> !;
+    unsafe fn kthread_trampoline() -> !;
 }
 
 pub fn init() {
@@ -200,9 +201,8 @@ where
 
 fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let mut stack = Box::new(ThreadStack::new());
-    let stack_ptr: *mut u8 = stack.as_mut().dump.as_mut_ptr();
-    let top_aligned = ((stack_ptr as usize + STACK_SIZE) & !0xF) as u64; // 16-align
-    let frame = (top_aligned - 16) as *mut u64; // space for [arg][entry]
+    let top = (&raw mut stack.as_mut().dump[STACK_SIZE - 1]) as u64;
+    let frame = (top - 16) as *mut u64; // space for [arg][entry]
     unsafe {
         // [0] = arg, [1] = entry
         core::ptr::write(frame.add(0), arg as u64);
@@ -227,7 +227,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
                 simd: SimdArea {
                     dump: [0; sched_simd::SIZE],
                 },
-                _kstack_top: top_aligned,
+                _kstack_top: top,
                 time_slice: DEFAULT_SLICE,
                 _stack: stack,
             }),
