@@ -14,14 +14,14 @@ fn in_range(addr: usize, len: usize, s: usize, e: usize) -> bool {
 pub struct SectionMemory;
 
 unsafe extern "C" {
-    static __text_start: u8;
-    static __text_end: u8;
-    static __rodata_start: u8;
-    static __rodata_end: u8;
-    static __data_start: u8;
-    static __data_end: u8;
-    static __bss_start: u8;
-    static __bss_end: u8;
+    unsafe static __text_start: u8;
+    unsafe static __text_end: u8;
+    unsafe static __rodata_start: u8;
+    unsafe static __rodata_end: u8;
+    unsafe static __data_start: u8;
+    unsafe static __data_end: u8;
+    unsafe static __bss_start: u8;
+    unsafe static __bss_end: u8;
 }
 
 fn in_any_range(addr: usize, len: usize, ranges: &[(usize, usize)]) -> bool {

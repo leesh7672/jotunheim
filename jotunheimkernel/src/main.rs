@@ -11,7 +11,7 @@ mod util;
 
 extern crate alloc;
 
-use crate::{arch::x86_64::smp::boot_all_aps, bootinfo::BootInfo, mem::reserved, util::zero_bss};
+use crate::{arch::native::smp::boot_all_aps, bootinfo::BootInfo, mem::reserved, util::zero_bss};
 
 use core::panic::PanicInfo;
 use x86_64::instructions::{
@@ -19,7 +19,7 @@ use x86_64::instructions::{
     interrupts::{self, without_interrupts},
 };
 
-use crate::arch::x86_64::{mmio_map, serial};
+use crate::arch::native::{self, mmio_map, serial};
 
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text._start")]
@@ -37,7 +37,7 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         mem::seed_usable_from_mmap(&boot);
         mem::init_heap();
         mmio_map::enforce_apic_mmio_flags();
-        arch::x86_64::init();
+        native::init(&boot);
         sched::init();
         sched::spawn(|| {
             boot_all_aps(&boot);

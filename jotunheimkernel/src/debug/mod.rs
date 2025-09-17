@@ -5,7 +5,7 @@ use spin::Mutex;
 
 pub mod breakpoint;
 
-pub use crate::arch::x86_64::context::TrapFrame;
+pub use crate::arch::native::context::TrapFrame;
 use crate::kprintln;
 
 #[derive(Clone, Copy, Debug)]

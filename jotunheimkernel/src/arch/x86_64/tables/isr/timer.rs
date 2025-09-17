@@ -3,13 +3,13 @@ use crate::{arch::x86_64::{apic, tables::ISR}, debug::TrapFrame, sched};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(_: &mut TrapFrame) {
-    apic::timer_isr_eoi_and_rearm_deadline();
+    apic::eoi();
     sched::tick()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_spurious_rust() {
-    unsafe { apic::eoi() };
+    apic::eoi()
 }
 
 unsafe extern "C"{

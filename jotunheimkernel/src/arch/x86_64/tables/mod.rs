@@ -20,7 +20,7 @@ pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     if !THROTTLED_ONCE.swap(true, Ordering::Relaxed) {
         kprintln!("[INT] default vec={:#04x} err={:#018x}", vec, err);
     }
-    unsafe { apic::eoi() };
+    apic::eoi();
 }
 
 const STACK_SIZE: usize = 0x8000;

@@ -10,10 +10,12 @@ pub mod tables;
 pub mod tsc;
 
 use crate::arch::x86_64::tables::isr;
+use crate::bootinfo::BootInfo;
+use crate::kprintln;
 use tables::gdt;
 use tables::idt;
 
-pub fn init() {
+pub fn init(boot: &BootInfo) {
     simd::init();
     unsafe {
         ioapic::mask_all();
@@ -22,7 +24,7 @@ pub fn init() {
     isr::init();
     gdt::init();
     idt::init();
-    apic::paging();
+    apic::paging(boot.hhdm_base);
     apic::open_all_irqs();
     apic::start_timer_hz(1_000);
 }

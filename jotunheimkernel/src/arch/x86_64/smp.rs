@@ -13,13 +13,16 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::{
     acpi::madt,
     arch::x86_64::{
-        apic, ioapic, simd, tables::{gdt, idt}
+        apic, tables::{gdt, idt}
     },
     bootinfo::BootInfo,
     kprintln, mem,
 };
 
 use crate::arch::x86_64::ap_trampoline;
+
+
+static mut HHDM_BASE: u64 = 0;
 
 #[repr(C, align(16))]
 pub struct ApBoot {
@@ -39,6 +42,7 @@ pub struct ApBoot {
 ///   - the trampoline has been assembled and findable via `ap_trampoline::blob()`
 ///   - low identity map for `TRAMP_PHYS` page exists
 pub fn boot_all_aps(boot: &BootInfo) {
+    unsafe { HHDM_BASE = boot.hhdm_base };
     let Some(m) = madt::discover(boot) else {
         kprintln!("[SMP] No MADT; cannot boot APs.");
         return;
@@ -134,9 +138,9 @@ pub fn boot_all_aps(boot: &BootInfo) {
         without_interrupts(|| {
             apic::send_init(c.apic_id);
             spin_delay_us(10_000);
-            unsafe { apic::send_startup(c.apic_id, vector) };
+            apic::send_startup(c.apic_id, vector);
             spin_delay_us(200);
-            unsafe { apic::send_startup(c.apic_id, vector) };
+            apic::send_startup(c.apic_id, vector);
         });
 
         // (f) Wait for trampoline to set ready_flag = 1
@@ -171,10 +175,8 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn ap_entry() -> ! {
     without_interrupts(|| {
-        kprintln!("[SMP] hello from AP.");
-        kprintln!("[SMP] {}", apic::lapic_id());
+        apic::ap_init(unsafe { HHDM_BASE });
         gdt::load();
-        kprintln!("[SMP] Loaded the GDT.");
         idt::load();
         kprintln!("[SMP] Loaded the IDT.");
     });

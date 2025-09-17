@@ -11,8 +11,8 @@ use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;
 
-use crate::arch::x86_64::context::{CpuContext, switch};
-use crate::arch::x86_64::simd::{restore, save};
+use crate::arch::native::context::{CpuContext, switch};
+use crate::arch::native::simd::{restore, save};
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
