@@ -23,8 +23,18 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) -> ! {
 
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_pf_rust(_tf: *mut TrapFrame) -> ! {
-    kprintln!("[PF]");
+pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) -> ! {
+    let tf = unsafe { &*tf };
+    kprintln!(
+        "[#PF] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
+        tf.vec,
+        tf.err,
+        tf.rip,
+        tf.rsp,
+        tf.rflags,
+        tf.cs as u16,
+        tf.ss as u16
+    );
     loop {
         x86_64::instructions::hlt();
     }

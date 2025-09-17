@@ -12,7 +12,7 @@ use x86_64::{
     },
 };
 
-use crate::arch::x86_64::tables::{ISR, STACK_SIZE, Stack, registrate_me};
+use crate::{arch::x86_64::tables::{registrate_me, Stack, ISR, STACK_SIZE}, kprintln};
 
 #[derive(Copy, Clone)]
 pub struct Selectors {
@@ -87,7 +87,6 @@ pub fn load() {
         SS::set_reg(data);
         load_tss(tss);
     }
-
     let sels = Selectors {
         code,
         _data: data,

@@ -178,7 +178,6 @@ pub extern "C" fn ap_entry() -> ! {
         apic::ap_init(unsafe { HHDM_BASE });
         gdt::load();
         idt::load();
-        kprintln!("[SMP] Loaded the IDT.");
     });
 
     loop {
