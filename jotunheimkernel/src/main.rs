@@ -40,9 +40,10 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         native::init(&boot);
         sched::init();
         sched::spawn(|| {
+            kprintln!("[JOTUNHEIM] Started the kernel.");
             boot_all_aps(boot);
-            sched::smp();
         });
+        sched::smp();
         debug::setup();
     });
     interrupts::enable();

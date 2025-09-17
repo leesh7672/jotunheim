@@ -4,12 +4,14 @@
 extern crate alloc;
 
 use core::{
+    arch::asm,
     ptr,
     sync::atomic::{Ordering, compiler_fence},
 };
 
 use x86_64::{
-    instructions::interrupts::without_interrupts, structures::gdt::GlobalDescriptorTable,
+    instructions::{hlt, interrupts::without_interrupts},
+    structures::gdt::GlobalDescriptorTable,
 };
 
 use crate::{
@@ -128,13 +130,12 @@ pub fn boot_all_aps(boot: &BootInfo) {
                     if let Some(stack) = &e.stack {
                         stk_va = &raw const stack.me(c.apic_id).unwrap().dump[0] as u64;
                         stk_top =
-                            (stk_va + stack.me(c.apic_id).unwrap().dump.len() as u64 - 1) & !0xF;
+                            (stk_va + stack.me(c.apic_id).unwrap().dump.len() as u64 - 0x10) & !0xF;
                     }
                 }
             }
         });
 
-        kprintln!("{:x}", stk_top);
         if stk_va == 0 {
             continue;
         }
@@ -198,16 +199,12 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 /// What each AP runs after the trampoline puts us in 64-bit mode.
 #[unsafe(no_mangle)]
 pub extern "C" fn ap_entry() -> ! {
-    without_interrupts(|| {
-        kprintln!("AP");
-        apic::ap_init(unsafe { HHDM_BASE });
-        kprintln!("Hello from {}", apic::lapic_id());
-        //idt::init(gdt::load(gdt_ptr as *const (Selectors, &'static mut GlobalDescriptorTable)));
-        kprintln!("Ready");
-        loop {}
-    });
-
+    kprintln!("AP");
+    apic::ap_init(unsafe { HHDM_BASE });
+    kprintln!("Hello from {}", apic::lapic_id());
+    //idt::init(gdt::load(gdt_ptr as *const (Selectors, &'static mut GlobalDescriptorTable)));
+    kprintln!("Ready");
     loop {
-        x86_64::instructions::hlt();
+        unsafe { asm!("hlt") };
     }
 }

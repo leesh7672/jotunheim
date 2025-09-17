@@ -2,6 +2,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 extern crate alloc;
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::mem::size_of;
 
@@ -149,7 +150,7 @@ fn find_sdt_by_sig_rsdt(hhdm: u64, rsdt_phys: u64, want: &[u8; 4]) -> Option<(u6
 
 // ───────────────────────── MADT discovery ─────────────────────────
 
-pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
+pub fn discover(boot: &BootInfo) -> Option<Box<MadtInfo>> {
     if boot.rsdp_addr == 0 {
         kprintln!("[acpi] RSDP address is 0");
         return None;
@@ -216,8 +217,8 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
     let mh: &MadtHeader = unsafe { &*(madt_bytes.as_ptr() as *const MadtHeader) };
 
     let mut lapic_phys = mh.lapic_mmio as u64;
-    let mut cpus: Vec<CpuEntry> = Vec::new();
-    let mut ioapics: Vec<IoApic> = Vec::new();
+    let mut cpus: Vec<Box<CpuEntry>> = Vec::new();
+    let mut ioapics: Vec<Box<IoApic>> = Vec::new();
 
     let mut p = size_of::<MadtHeader>() as usize;
     while p + size_of::<MadtEntryHeader>() <= madt_len as usize {
@@ -232,21 +233,21 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
                 let apic_id = madt_bytes[p + 3];
                 let flags = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap());
                 let enabled = (flags & 1) != 0;
-                cpus.push(CpuEntry {
+                cpus.push(Box::new(CpuEntry {
                     apic_id: apic_id as u32,
                     enabled,
                     _is_x2apic: false,
-                });
+                }));
             }
             IOAPIC if hdr.len as usize >= 12 => {
                 let id = madt_bytes[p + 2];
                 let base = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap()) as u64;
                 let gsi = u32::from_le_bytes(madt_bytes[p + 8..p + 12].try_into().unwrap());
-                ioapics.push(IoApic {
+                ioapics.push(Box::new(IoApic {
                     _id: id,
                     _mmio_base_phys: base,
                     _gsi_base: gsi,
-                });
+                }));
             }
             LAPIC_ADDR_OVERRIDE if hdr.len as usize >= 12 => {
                 lapic_phys = u64::from_le_bytes(madt_bytes[p + 4..p + 12].try_into().unwrap());
@@ -255,11 +256,11 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
                 let apic_id = u32::from_le_bytes(madt_bytes[p + 4..p + 8].try_into().unwrap());
                 let flags = u32::from_le_bytes(madt_bytes[p + 8..p + 12].try_into().unwrap());
                 let enabled = (flags & 1) != 0;
-                cpus.push(CpuEntry {
+                cpus.push(Box::new(CpuEntry {
                     apic_id,
                     enabled,
                     _is_x2apic: true,
-                });
+                }));
             }
             _ => { /* ignore others for now */ }
         }
@@ -268,10 +269,10 @@ pub fn discover(boot: &BootInfo) -> Option<MadtInfo> {
     }
 
     let m: _ = MadtInfo {
-        _lapic_phys: lapic_phys,
-        cpus: cpus,
-        _ioapics: ioapics,
+        _lapic_phys: Box::new(lapic_phys),
+        cpus: Box::new(cpus),
+        _ioapics: Box::new(ioapics),
     };
 
-    Some(m)
+    Some(Box::new(m))
 }

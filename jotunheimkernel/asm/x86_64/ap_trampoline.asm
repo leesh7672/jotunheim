@@ -114,8 +114,11 @@ lm64:
     mov rcx, [rax + 0x28]     ; ApBoot.entry64
 
     mov dword [rax + 0x00], 1 ; ApBoot.ready_flag = 1   (dword, not qword!)
-
-    jmp rcx                   ; -> ap_entry()
+    
+    cli
+    call rcx
+.loop:
+    jmp .loop
 
 ; ---------- tiny flat GDT ----------
 align 8

@@ -84,7 +84,7 @@ struct ThreadStack {
 
 impl ThreadStack {
     fn new() -> Self {
-        const STACK_SIZE: usize = 0x40000;
+        const STACK_SIZE: usize = 0x80000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         ThreadStack { dump }
     }
@@ -234,7 +234,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
 }
 
 pub fn sleep() {
-    let Some((prev, next)) = with_rq_locked(|rq| {
+    let Some((mut prev, mut next)) = with_rq_locked(|rq| {
         let current = rq.current;
         let next;
         {
@@ -259,31 +259,20 @@ pub fn sleep() {
             }
         }
         rq.tasks[next].as_mut().state = TaskState::Running;
-
-        let (prev_ctx, prev_simd) = {
-            let prev = rq.tasks[current].as_mut();
-            (&mut prev.ctx as *mut CpuContext, prev.simd.as_mut_ptr())
-        };
-        let (next_ctx, next_simd) = {
-            let next = rq.tasks[next].as_mut();
-            (&next.ctx as *const CpuContext, next.simd.as_mut_ptr())
-        };
-
-        rq.current = next;
-        rq.need_resched = false;
-
-        save(prev_simd);
-        restore(next_simd);
-        Some((prev_ctx, next_ctx))
+        Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
     }) else {
         hlt();
         return;
     };
-    switch(prev, next);
+    save(prev.simd.as_mut_ptr());
+    restore(next.simd.as_mut_ptr());
+    switch(&mut prev.ctx, &mut next.ctx);
+    save(next.simd.as_mut_ptr());
+    restore(next.simd.as_mut_ptr());
 }
 
 pub fn tick() {
-    with_rq_locked(|rq| {
+    let Some((mut prev, mut next)) = with_rq_locked(|rq| {
         let current = rq.current;
         {
             let t = rq.tasks[current].as_mut();
@@ -312,13 +301,13 @@ pub fn tick() {
         }
 
         if !(rq.need_resched || (cur_is_idle && some_ready)) {
-            return;
+            return None;
         } else {
             let next;
             {
                 let picked = rq.pick_next();
                 if picked.is_none() {
-                    return;
+                    return None;
                 } else {
                     next = picked.unwrap();
                 }
@@ -326,7 +315,7 @@ pub fn tick() {
             {
                 if next == current {
                     rq.need_resched = false;
-                    return;
+                    return None;
                 }
                 {
                     let t = rq.tasks[current].as_mut();
@@ -337,36 +326,29 @@ pub fn tick() {
                 }
             }
             rq.tasks[next].as_mut().state = TaskState::Running;
-
-            let (prev_ctx, prev_simd) = {
-                let prev = rq.tasks[current].as_mut();
-                (&mut prev.ctx as *mut CpuContext, prev.simd.as_mut_ptr())
-            };
-            let (next_ctx, next_simd) = {
-                let next = rq.tasks[next].as_mut();
-                (&next.ctx as *const CpuContext, next.simd.as_mut_ptr())
-            };
-
-            rq.current = next;
-            rq.need_resched = false;
-
-            save(prev_simd);
-            restore(next_simd);
-            switch(prev_ctx, next_ctx);
-            kprintln!("Return");
+            Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
         }
-    })
+    }) else {
+        return;
+    };
+
+    save(prev.simd.as_mut_ptr());
+    restore(next.simd.as_mut_ptr());
+    switch(&mut prev.ctx, &mut next.ctx);
+    save(next.simd.as_mut_ptr());
+    restore(next.simd.as_mut_ptr());
 }
 /* ------------------------------ Core switching ------------------------------- */
 
 pub fn exit_current() -> ! {
     kill_current();
     loop {
+        sleep();
         x86_64::instructions::hlt();
     }
 }
 
-pub fn kill_current() {
+fn kill_current() {
     with_rq_locked(|rq| {
         let task = rq.tasks[rq.current].as_mut();
         task.state = TaskState::Dead;
@@ -385,20 +367,21 @@ fn with_rq_locked<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RunQueue) -> R,
 {
-    let mut guard = without_interrupts(|| RQ.lock());
-    let op = guard.as_mut();
-    let ret: R;
-    if let Some(rq) = op {
-        ret = f(rq.as_mut())
-    } else {
-        *guard = Some(Box::new(RunQueue {
-            tasks: Vec::new(),
-            current: 0,
-            next_id: 0,
-            need_resched: false,
-        }));
-        ret = f(guard.as_mut().unwrap().as_mut())
-    }
-    without_interrupts(|| drop(guard));
-    ret
+    without_interrupts(|| {
+        let mut guard = RQ.lock();
+        let op = guard.as_mut();
+        let ret: R;
+        if let Some(rq) = op {
+            ret = f(rq.as_mut())
+        } else {
+            *guard = Some(Box::new(RunQueue {
+                tasks: Vec::new(),
+                current: 0,
+                next_id: 0,
+                need_resched: false,
+            }));
+            ret = f(guard.as_mut().unwrap().as_mut())
+        }
+        ret
+    })
 }
