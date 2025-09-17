@@ -40,7 +40,7 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         native::init(&boot);
         sched::init();
         sched::spawn(|| {
-            boot_all_aps(&boot);
+            boot_all_aps(*boot);
             sched::smp();
         });
         debug::setup();
