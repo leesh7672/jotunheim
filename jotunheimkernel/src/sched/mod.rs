@@ -83,7 +83,7 @@ struct ThreadStack {
 
 impl ThreadStack {
     fn new() -> Self {
-        const STACK_SIZE: usize = 0x8000;
+        const STACK_SIZE: usize = 0x10000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         ThreadStack { dump }
     }

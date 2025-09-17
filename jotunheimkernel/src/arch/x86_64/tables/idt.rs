@@ -1,7 +1,9 @@
 #![allow(clippy::missing_safety_doc)]
 
-use crate::arch::x86_64::gdt;
+use alloc::boxed::Box;
+
 use crate::arch::x86_64::tables::access;
+use crate::arch::x86_64::tables::gdt::Selectors;
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
@@ -39,15 +41,9 @@ pub struct Idtr {
 #[repr(transparent)]
 pub struct Idt([IdtEntry; 256]);
 
-static mut IDT: Idt = Idt([empty_entry(); 256]);
-
 // Stubs from NASM
 unsafe extern "C" {
     unsafe fn isr_default_stub();
-}
-
-fn kernel_cs_u16() -> u16 {
-    gdt::code_selector().0
 }
 
 fn set_gate_raw(
@@ -56,11 +52,12 @@ fn set_gate_raw(
     handler: unsafe extern "C" fn(),
     ist: u8,
     dpl: u8,
+    sel: Selectors,
 ) {
     let h = handler as usize;
     let entry = IdtEntry {
         offset_low: (h & 0xFFFF) as u16,
-        selector: kernel_cs_u16(), // <- use the real CS
+        selector: sel.code.0, // <- use the real CS
         ist: ist & 0x7,
         type_attr: 0x8E | ((dpl & 0x3) << 5),
         offset_mid: ((h >> 16) & 0xFFFF) as u16,
@@ -72,10 +69,17 @@ fn set_gate_raw(
     }
 }
 
-fn set_gate(idx: usize, handler: unsafe extern "C" fn(), ist: u8, dpl: u8) {
-    unsafe {
-        let base: *mut IdtEntry = addr_of_mut!(IDT.0) as *mut IdtEntry;
-        set_gate_raw(base, idx, handler, ist, dpl);
+impl Idt {
+    fn set_gate(
+        &mut self,
+        idx: usize,
+        handler: unsafe extern "C" fn(),
+        ist: u8,
+        dpl: u8,
+        sel: Selectors,
+    ) {
+        let base: *mut IdtEntry = addr_of_mut!(self.0) as *mut IdtEntry;
+        set_gate_raw(base, idx, handler, ist, dpl, sel);
     }
 }
 
@@ -93,29 +97,21 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
     }
 }
 
-pub fn init() {
-    unsafe {
-        for v in 0..=255usize {
-            set_gate(v, isr_default_stub, 0, 0);
-        }
-        access(|isr| {
-            if let (Some(vec), Some(stub)) = (isr.vector, isr.stub) {
-                let index = match isr.index {
-                    Some(index) => index,
-                    None => 0,
-                };
-                set_gate(vec as usize, stub, index as u8, 0);
-            } else {
-            }
-        });
-        let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
-        load_idt_ptr(idt_ptr);
+pub fn init(sel: Selectors) {
+    let idt = Box::leak(Box::new(Idt([empty_entry(); 256])));
+    for v in 0..=255usize {
+        idt.set_gate(v, isr_default_stub, 0, 0, sel);
     }
-}
-
-pub fn load() {
-    unsafe {
-        let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
-        load_idt_ptr(idt_ptr)
-    };
+    access(|isr| {
+        if let (Some(vec), Some(stub)) = (isr.vector, isr.stub) {
+            let index = match isr.index {
+                Some(index) => index,
+                None => 0,
+            };
+            idt.set_gate(vec as usize, stub, index as u8, 0, sel);
+        } else {
+        }
+    });
+    let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
+    unsafe { load_idt_ptr(idt_ptr) };
 }

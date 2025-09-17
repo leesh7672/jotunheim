@@ -22,8 +22,7 @@ pub fn init(boot: &BootInfo) {
     }
     apic::early_init();
     isr::init();
-    gdt::init();
-    idt::init();
+    idt::init(gdt::init());
     apic::paging(boot.hhdm_base);
     apic::open_all_irqs();
     apic::start_timer_hz(1_000);

@@ -13,14 +13,14 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::{
     acpi::madt,
     arch::x86_64::{
-        apic, tables::{gdt, idt}
+        apic,
+        tables::{gdt, idt},
     },
     bootinfo::BootInfo,
     kprintln, mem,
 };
 
 use crate::arch::x86_64::ap_trampoline;
-
 
 static mut HHDM_BASE: u64 = 0;
 
@@ -133,7 +133,6 @@ pub fn boot_all_aps(boot: &BootInfo) {
             ((tramp_virt + p64_off as u64) as *mut u64).write(ab_pa);
             compiler_fence(Ordering::SeqCst);
         }
-
         // (e) Kick the AP: INIT → SIPI → SIPI
         without_interrupts(|| {
             apic::send_init(c.apic_id);
@@ -175,9 +174,12 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn ap_entry() -> ! {
     without_interrupts(|| {
+        kprintln!("A");
         apic::ap_init(unsafe { HHDM_BASE });
-        gdt::load();
-        idt::load();
+        kprintln!("Hello from {}", apic::lapic_id());
+        idt::init(gdt::load());
+        kprintln!("Ready");
+        loop {}
     });
 
     loop {

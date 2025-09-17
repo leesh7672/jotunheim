@@ -23,7 +23,7 @@ pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     apic::eoi();
 }
 
-const STACK_SIZE: usize = 0x8000;
+const STACK_SIZE: usize = 0x10000;
 
 #[derive(Clone, Debug)]
 #[repr(C)]
