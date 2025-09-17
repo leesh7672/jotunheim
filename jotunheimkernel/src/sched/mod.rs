@@ -353,8 +353,9 @@ pub fn tick() {
             save(prev_simd);
             restore(next_simd);
             switch(prev_ctx, next_ctx);
+            kprintln!("Return");
         }
-    });
+    })
 }
 /* ------------------------------ Core switching ------------------------------- */
 
@@ -384,19 +385,20 @@ fn with_rq_locked<F, R>(f: F) -> R
 where
     F: FnOnce(&mut RunQueue) -> R,
 {
-    without_interrupts(|| {
-        let mut guard = RQ.lock();
-        let op = guard.as_mut();
-        if let Some(rq) = op {
-            f(rq.as_mut())
-        } else {
-            *guard = Some(Box::new(RunQueue {
-                tasks: Vec::new(),
-                current: 0,
-                next_id: 0,
-                need_resched: false,
-            }));
-            f(guard.as_mut().unwrap().as_mut())
-        }
-    })
+    let mut guard = without_interrupts(|| RQ.lock());
+    let op = guard.as_mut();
+    let ret: R;
+    if let Some(rq) = op {
+        ret = f(rq.as_mut())
+    } else {
+        *guard = Some(Box::new(RunQueue {
+            tasks: Vec::new(),
+            current: 0,
+            next_id: 0,
+            need_resched: false,
+        }));
+        ret = f(guard.as_mut().unwrap().as_mut())
+    }
+    without_interrupts(|| drop(guard));
+    ret
 }

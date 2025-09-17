@@ -44,7 +44,6 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
             sched::smp();
         });
         debug::setup();
-        kprintln!("[JOTUNHEIM] Starting the kernel.");
     });
     interrupts::enable();
     loop {
