@@ -8,13 +8,19 @@ use core::{
     sync::atomic::{Ordering, compiler_fence},
 };
 
-use x86_64::instructions::interrupts::without_interrupts;
+use x86_64::{
+    instructions::interrupts::without_interrupts, structures::gdt::GlobalDescriptorTable,
+};
 
 use crate::{
     acpi::madt,
     arch::x86_64::{
         apic,
-        tables::{gdt, idt},
+        tables::{
+            access,
+            gdt::{self, Selectors},
+            idt,
+        },
     },
     bootinfo::BootInfo,
     kprintln, mem,
@@ -85,7 +91,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
     let cr3 = cr3_frame.start_address().as_u64();
 
     // --- 4) Entry for APs (kernel 64-bit entry) ---
-    let entry64 = (ap_entry as extern "C" fn() -> !) as usize as u64;
+    let entry64 = ap_entry as usize as u64;
 
     // --- 5) Bring up each enabled AP ---
     let bsp_id = apic::lapic_id();
@@ -110,17 +116,34 @@ pub fn boot_all_aps(boot: &BootInfo) {
         }
 
         // (b) Per-AP stack: 32 KiB VMAP (guaranteed mapped)
-        const AP_STACK_PAGES: usize = 8; // 8 * 4KiB = 32KiB
-        let stk_va = crate::mem::vmap_alloc_pages(AP_STACK_PAGES)
-            .expect("[SMP] vmap stack alloc failed") as u64;
-        let stk_top = stk_va + (AP_STACK_PAGES as u64) * 4096;
+        let gdt = gdt::generate(c.apic_id);
+        let gdt_ptr: *const (Selectors, &'static mut GlobalDescriptorTable) = &raw const gdt;
+
+        let mut stk_va: u64 = 0;
+        let mut stk_top = 0;
+
+        access(|e| {
+            if !matches!(e.stub, None) {
+                if !matches!(e.vector, None) {
+                    if let Some(stack) = &e.stack {
+                        stk_va = &raw const stack.me(c.apic_id).unwrap().dump[0] as u64;
+                        stk_top =
+                            (stk_va + stack.me(c.apic_id).unwrap().dump.len() as u64 - 1) & !0xF;
+                    }
+                }
+            }
+        });
+
+        if stk_va == 0 {
+            continue;
+        }
 
         // (c) Fill ApBoot (BSP writes VA, AP will read PA we pass to trampoline)
         *ab_ref = ApBoot {
             ready_flag: 0,
             _pad: 0,
             cr3,
-            gdt_ptr: 0,
+            gdt_ptr: gdt_ptr as u64,
             idt_ptr: 0,
             stack_top: stk_top, // <-- VA, valid under CR3
             entry64,
@@ -133,6 +156,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
             ((tramp_virt + p64_off as u64) as *mut u64).write(ab_pa);
             compiler_fence(Ordering::SeqCst);
         }
+
         // (e) Kick the AP: INIT → SIPI → SIPI
         without_interrupts(|| {
             apic::send_init(c.apic_id);
@@ -147,6 +171,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
             kprintln!("[SMP] apic_id {} did not signal ready in time", c.apic_id);
         }
     }
+    kprintln!("A");
 }
 
 /// Very dumb spin delay until you wire your calibrated TSC helper.
@@ -174,10 +199,10 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn ap_entry() -> ! {
     without_interrupts(|| {
-        kprintln!("A");
+        kprintln!("AP");
         apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", apic::lapic_id());
-        idt::init(gdt::load());
+        //idt::init(gdt::load(gdt_ptr as *const (Selectors, &'static mut GlobalDescriptorTable)));
         kprintln!("Ready");
         loop {}
     });

@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 
+use spin::Mutex;
 use x86_64::{
     VirtAddr,
     instructions::{
@@ -12,13 +13,16 @@ use x86_64::{
     },
 };
 
-use crate::arch::x86_64::tables::{ISR, STACK_SIZE, Stack, registrate_me};
+use crate::arch::x86_64::{
+    apic::lapic_id,
+    tables::{ISR, Stack, registrate},
+};
 
 #[derive(Copy, Clone)]
 pub struct Selectors {
     pub code: SegmentSelector,
-    pub _data: SegmentSelector,
-    pub _tss: SegmentSelector, // lower TSS slot (e.g., 0x28)
+    pub data: SegmentSelector,
+    pub tss: SegmentSelector, // lower TSS slot (e.g., 0x28)
 }
 
 fn top_raw(base: *const u8, len: usize) -> VirtAddr {
@@ -27,18 +31,12 @@ fn top_raw(base: *const u8, len: usize) -> VirtAddr {
     VirtAddr::from_ptr(end).align_down(16u64)
 }
 
-/// Build + load GDT/TSS once; return selectors. Safe to call multiple times.
-pub fn init() -> Selectors {
-    ISR::new(None, None, Some(Box::new(Stack::new())));
-    load()
-}
+pub fn generate(apic: u32) -> (Selectors, &'static mut GlobalDescriptorTable) {
+    registrate(apic);
 
-pub fn load() -> Selectors {
     let tss_ref = {
         // Singletons
         let mut tss: Box<TaskStateSegment> = Box::new(TaskStateSegment::new());
-
-        registrate_me();
 
         // Materialise TSS with real stacks (once)
         *tss.as_mut() = {
@@ -46,19 +44,16 @@ pub fn load() -> Selectors {
             let mut i = 0;
             let mut p = 0;
             super::access(|isr| {
-                if let Some(_) = &isr.stack {
+                if let Some(stack) = &isr.stack {
+                    let stack = stack.me(apic).unwrap();
                     if let (Some(_), Some(_)) = (isr.vector, isr.stub) {
                         isr.index = Some(i);
-                        t.interrupt_stack_table[i as usize] = top_raw(
-                            isr.stack.clone().unwrap().me().unwrap().dump.as_ptr(),
-                            STACK_SIZE,
-                        );
+                        t.interrupt_stack_table[i as usize] =
+                            top_raw(&raw const stack.dump.as_ref()[0], stack.dump.len() - 1);
                         i += 1;
                     } else {
-                        t.privilege_stack_table[p as usize] = top_raw(
-                            isr.stack.clone().unwrap().me().unwrap().dump.as_ptr(),
-                            STACK_SIZE,
-                        );
+                        t.privilege_stack_table[p as usize] =
+                            top_raw(&raw const stack.dump.as_ref()[0], stack.dump.len() - 1);
                         p += 1;
                     }
                 } else {
@@ -71,26 +66,42 @@ pub fn load() -> Selectors {
         Box::leak(tss)
     };
 
-    let mut tmp = Box::new(GlobalDescriptorTable::new());
-    let code = tmp.as_mut().append(Descriptor::kernel_code_segment());
-    let data = tmp.as_mut().append(Descriptor::kernel_data_segment());
-    let tss = tmp.as_mut().append(Descriptor::tss_segment(tss_ref));
+    let mut gdt = Box::new(GlobalDescriptorTable::new());
+    let code = gdt.as_mut().append(Descriptor::kernel_code_segment());
+    let data = gdt.as_mut().append(Descriptor::kernel_data_segment());
+    let tss = gdt.as_mut().append(Descriptor::tss_segment(tss_ref));
 
     // Move into 'static storage and load from that &'static
-    let gdt_ref = Box::leak(tmp);
+    let sels = Selectors { code, data, tss };
+    let gdt = Box::leak(gdt);
+    (sels, gdt)
+}
+
+/// Build + load GDT/TSS once; return selectors. Safe to call multiple times.
+pub fn init() -> Selectors {
+    ISR::new(None, None, Some(Box::new(Stack::new())));
+    let (sels, gdt) = generate(lapic_id());
 
     unsafe {
-        gdt_ref.load();
-        CS::set_reg(code);
-        DS::set_reg(data);
-        ES::set_reg(data);
-        SS::set_reg(data);
-        load_tss(tss);
+        gdt.load();
+        CS::set_reg(sels.code);
+        DS::set_reg(sels.data);
+        ES::set_reg(sels.data);
+        SS::set_reg(sels.data);
+        load_tss(sels.tss);
     }
-    let sels = Selectors {
-        code,
-        _data: data,
-        _tss: tss,
-    };
     sels
+}
+
+pub fn load(gdt: *const (Selectors, &'static mut GlobalDescriptorTable)) -> Selectors {
+    let (sels, gdt) = unsafe { &*gdt };
+    unsafe {
+        gdt.load();
+        CS::set_reg(sels.code);
+        DS::set_reg(sels.data);
+        ES::set_reg(sels.data);
+        SS::set_reg(sels.data);
+        load_tss(sels.tss);
+    }
+    *sels
 }

@@ -1,10 +1,10 @@
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::{arch::x86_64::tables::ISR, debug::{self, breakpoint, Outcome, TrapFrame}, kprintln};
+use crate::{arch::x86_64::tables::ISR, debug::{self, breakpoint, Outcome, TrapFrame}, kprintln, sched::exit_current};
 
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) -> ! {
+pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
     let tf = unsafe { &*tf };
     kprintln!(
         "[#GP] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
@@ -16,14 +16,12 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) -> ! {
         tf.cs as u16,
         tf.ss as u16
     );
-    loop {
-        x86_64::instructions::hlt();
-    }
+    exit_current()
 }
 
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) -> ! {
+pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
     let tf = unsafe { &*tf };
     kprintln!(
         "[#PF] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
@@ -35,9 +33,7 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) -> ! {
         tf.cs as u16,
         tf.ss as u16
     );
-    loop {
-        x86_64::instructions::hlt();
-    }
+    exit_current()
 }
 
 #[unsafe(no_mangle)]

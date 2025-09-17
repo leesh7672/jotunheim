@@ -9,9 +9,9 @@ pub mod smp;
 pub mod tables;
 pub mod tsc;
 
+use crate::arch::x86_64::apic::lapic_id;
 use crate::arch::x86_64::tables::isr;
 use crate::bootinfo::BootInfo;
-use crate::kprintln;
 use tables::gdt;
 use tables::idt;
 

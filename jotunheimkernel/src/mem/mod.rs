@@ -2,7 +2,7 @@ pub mod reserved;
 pub mod simple_alloc;
 
 extern crate alloc;
-use core::sync::atomic::{AtomicU64, Ordering, fence};
+use core::sync::atomic::{fence, AtomicU64, Ordering};
 use core::{
     alloc::{GlobalAlloc, Layout},
     sync::atomic::AtomicBool,
@@ -14,11 +14,11 @@ use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::registers::control::Cr0Flags;
 use x86_64::structures::paging::{PageTableFlags as F, Translate};
 use x86_64::{
-    PhysAddr, VirtAddr,
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags,
         PhysFrame, Size4KiB,
     },
+    PhysAddr, VirtAddr,
 };
 
 static PT_LOCK: Mutex<()> = Mutex::new(());
@@ -111,7 +111,7 @@ fn map_4k(
     fa: &mut impl FrameAllocator<Size4KiB>,
 ) {
     pt_locked(|| {
-        use x86_64::{PhysAddr, VirtAddr, structures::paging::*};
+        use x86_64::{structures::paging::*, PhysAddr, VirtAddr};
         let pa_aligned = (pa_mask_52(pa)) & !0xFFF;
         let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(pa_aligned));
         let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
@@ -363,14 +363,6 @@ unsafe impl GlobalAlloc for PagingHeap {
     }
 }
 
-#[cfg(debug_assertions)]
-#[global_allocator]
-static GLOBAL_ALLOC: debug_alloc::GuardedHeap = debug_alloc::GuardedHeap::new(&RAW_ALLOC);
-
-#[cfg(debug_assertions)]
-static RAW_ALLOC: PagingHeap = PagingHeap::empty();
-
-#[cfg(not(debug_assertions))]
 #[global_allocator]
 static GLOBAL_ALLOC: PagingHeap = PagingHeap::empty();
 

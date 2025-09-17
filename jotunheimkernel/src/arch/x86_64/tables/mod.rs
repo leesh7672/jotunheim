@@ -5,11 +5,12 @@ pub mod isr;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use alloc::boxed::Box;
+use alloc::vec;
 use alloc::vec::Vec;
 use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::arch::x86_64::apic::{self, lapic_id};
+use crate::arch::x86_64::apic;
 use crate::kprintln;
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
@@ -23,13 +24,11 @@ pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
     apic::eoi();
 }
 
-const STACK_SIZE: usize = 0x10000;
-
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub struct CpuStack {
-    pub dump: [u8; STACK_SIZE],
-    acpi_id: u32,
+    pub dump: Box<[u8]>,
+    apic_id: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -41,13 +40,12 @@ impl Stack {
     pub fn new() -> Self {
         Self { stacks: Vec::new() }
     }
-    pub fn registrate(&mut self) {
-        self.stacks.insert(0, Box::new(CpuStack::new()));
+    pub fn registrate(&mut self, apic: u32) {
+        self.stacks.insert(0, Box::new(CpuStack::new(apic)));
     }
-    pub fn me(&self) -> Option<&Box<CpuStack>> {
-        let acpi_id = lapic_id();
+    pub fn me(&self, apic: u32) -> Option<&Box<CpuStack>> {
         for stack in &self.stacks {
-            if stack.acpi_id == acpi_id {
+            if stack.apic_id == apic {
                 return Some(stack);
             }
         }
@@ -56,10 +54,12 @@ impl Stack {
 }
 
 impl CpuStack {
-    pub fn new() -> Self {
+    pub fn new(apic: u32) -> Self {
+        const STACK_SIZE: usize = 0x4_0000;
+        let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         Self {
-            dump: [0; STACK_SIZE],
-            acpi_id: lapic_id(),
+            dump,
+            apic_id: apic,
         }
     }
 }
@@ -117,10 +117,10 @@ pub fn init() {
     *guard = Some(Box::new(Vec::new()));
 }
 
-pub fn registrate_me() {
+pub fn registrate(apic: u32) {
     access(|e| {
         if let Some(stack) = e.stack.as_mut() {
-            stack.registrate();
+            stack.registrate(apic);
         }
     });
 }
