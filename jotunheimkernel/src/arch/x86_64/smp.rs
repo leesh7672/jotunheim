@@ -8,14 +8,15 @@ use core::{
     sync::atomic::{Ordering, compiler_fence},
 };
 
-use x86_64::{instructions::interrupts::without_interrupts};
+use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{
     acpi::madt,
-    arch::x86_64::{apic},
+    arch::x86_64::{
+        apic, ioapic, simd, tables::{gdt, idt}
+    },
     bootinfo::BootInfo,
-    kprintln,
-    mem,
+    kprintln, mem,
 };
 
 use crate::arch::x86_64::ap_trampoline;
@@ -169,7 +170,15 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 /// What each AP runs after the trampoline puts us in 64-bit mode.
 #[unsafe(no_mangle)]
 pub extern "C" fn ap_entry() -> ! {
-    kprintln!("[SMP] hello from AP");
+    without_interrupts(|| {
+        kprintln!("[SMP] hello from AP.");
+        kprintln!("[SMP] {}", apic::lapic_id());
+        gdt::load();
+        kprintln!("[SMP] Loaded the GDT.");
+        idt::load();
+        kprintln!("[SMP] Loaded the IDT.");
+    });
+
     loop {
         x86_64::instructions::hlt();
     }

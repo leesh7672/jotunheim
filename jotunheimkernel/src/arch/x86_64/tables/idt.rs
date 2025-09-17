@@ -1,7 +1,7 @@
 #![allow(clippy::missing_safety_doc)]
 
-use crate::arch::x86_64::tables::access;
 use crate::arch::x86_64::gdt;
+use crate::arch::x86_64::tables::access;
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
@@ -111,4 +111,11 @@ pub fn init() {
         let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
         load_idt_ptr(idt_ptr);
     }
+}
+
+pub fn load() {
+    unsafe {
+        let idt_ptr: *const IdtEntry = addr_of!(IDT.0) as *const IdtEntry;
+        load_idt_ptr(idt_ptr)
+    };
 }

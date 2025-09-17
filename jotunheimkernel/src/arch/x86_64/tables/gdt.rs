@@ -12,7 +12,7 @@ use x86_64::{
     },
 };
 
-use crate::arch::x86_64::tables::{registrate_me, Stack, ISR, STACK_SIZE};
+use crate::arch::x86_64::tables::{ISR, STACK_SIZE, Stack, registrate_me};
 
 #[derive(Copy, Clone)]
 pub struct Selectors {
@@ -35,6 +35,10 @@ fn top_raw(base: *const u8, len: usize) -> VirtAddr {
 /// Build + load GDT/TSS once; return selectors. Safe to call multiple times.
 pub fn init() {
     ISR::new(None, None, Some(Box::new(Stack::new())));
+    load();
+}
+
+pub fn load() {
     registrate_me();
     if let Some(_s) = SELECTORS.get() {
         return;
@@ -49,12 +53,16 @@ pub fn init() {
             if let Some(_) = &isr.stack {
                 if let (Some(_), Some(_)) = (isr.vector, isr.stub) {
                     isr.index = Some(i);
-                    t.interrupt_stack_table[i as usize] =
-                        top_raw(isr.stack.clone().unwrap().me().unwrap().dump.as_ptr(), STACK_SIZE);
+                    t.interrupt_stack_table[i as usize] = top_raw(
+                        isr.stack.clone().unwrap().me().unwrap().dump.as_ptr(),
+                        STACK_SIZE,
+                    );
                     i += 1;
                 } else {
-                    t.privilege_stack_table[p as usize] =
-                        top_raw(isr.stack.clone().unwrap().me().unwrap().dump.as_ptr(), STACK_SIZE);
+                    t.privilege_stack_table[p as usize] = top_raw(
+                        isr.stack.clone().unwrap().me().unwrap().dump.as_ptr(),
+                        STACK_SIZE,
+                    );
                     p += 1;
                 }
             } else {
@@ -80,7 +88,11 @@ pub fn init() {
         load_tss(tss);
     }
 
-    let sels = Selectors { code, _data: data, _tss: tss };
+    let sels = Selectors {
+        code,
+        _data: data,
+        _tss: tss,
+    };
     let _ = SELECTORS.call_once(|| sels);
 }
 
