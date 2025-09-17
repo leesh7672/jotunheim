@@ -3,6 +3,7 @@ pub mod sched_simd;
 use core::u32;
 
 use alloc::boxed::Box;
+use alloc::vec;
 use alloc::vec::Vec;
 use spin::Mutex;
 use x86_64::instructions::hlt;
@@ -12,7 +13,6 @@ extern crate alloc;
 
 use crate::arch::x86_64::context::{CpuContext, switch};
 use crate::arch::x86_64::simd::{restore, save};
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -28,12 +28,11 @@ pub type TaskId = u64;
 
 #[derive(Clone, Debug)]
 pub struct Task {
-    pub _id: TaskId,
-    pub state: TaskState,
-    pub ctx: CpuContext,
-    pub simd: SimdArea,
-    pub _kstack_top: u64,
-    pub time_slice: u32,
+    id: TaskId,
+    state: TaskState,
+    ctx: CpuContext,
+    simd: SimdArea,
+    time_slice: u32,
     _stack: Box<ThreadStack>,
 }
 
@@ -77,19 +76,16 @@ impl RunQueue {
 
 /* Thread Stack */
 
-const STACK_SIZE: usize = 0x80000;
-
 #[derive(Clone, Debug)]
-#[repr(C, align(0x80))]
 struct ThreadStack {
-    dump: Box<[u8; STACK_SIZE]>,
+    dump: Box<[u8]>,
 }
 
 impl ThreadStack {
     fn new() -> Self {
-        ThreadStack {
-            dump: Box::new([0; STACK_SIZE]),
-        }
+        const STACK_SIZE: usize = 0x8000;
+        let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
+        ThreadStack { dump }
     }
 }
 
@@ -109,8 +105,9 @@ unsafe extern "C" {
 
 pub fn init() {
     let mut stack = Box::new(ThreadStack::new());
-    let stack_ptr: *mut u8 = stack.as_mut().dump.as_mut_ptr();
-    let top_aligned = ((stack_ptr as usize + STACK_SIZE) & !0xF) as u64; // 16-align
+    let dump = stack.as_mut().dump.as_mut();
+    let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
+    let top_aligned = ((stack_ptr as usize) & !0xF) as u64; // 16-align
     let frame = (top_aligned - 16) as *mut u64; // space for [arg][entry]
     unsafe {
         core::ptr::write(frame.add(0), 0 as u64);
@@ -123,7 +120,7 @@ pub fn init() {
         rq.tasks.insert(
             0,
             Box::new(Task {
-                _id: id,
+                id,
                 state: TaskState::Ready,
                 ctx: CpuContext {
                     // zero GPRs you don’t care about; set the essentials:
@@ -135,7 +132,6 @@ pub fn init() {
                 simd: SimdArea {
                     dump: [0; sched_simd::SIZE],
                 },
-                _kstack_top: top_aligned,
                 time_slice: u32::MAX,
                 _stack: stack,
             }),
@@ -152,7 +148,7 @@ pub fn smp() {
                 for task in tasks.iter_mut() {
                     if task.state == TaskState::Dead {
                         if task.time_slice == 0 {
-                            deads.insert(0, task._id);
+                            deads.insert(0, task.id);
                         } else {
                             task.time_slice -= 1;
                         }
@@ -160,13 +156,13 @@ pub fn smp() {
                 }
                 for id in deads {
                     let mut i = 0;
-                    while id == tasks[i]._id {
+                    while id == tasks[i].id {
                         i += 1;
                     }
                     tasks.remove(i);
                 }
             });
-            for _ in 0..1000000 {
+            for _ in 0..100000 {
                 sleep();
             }
         }
@@ -201,10 +197,11 @@ where
 
 fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let mut stack = Box::new(ThreadStack::new());
-    let top = (&raw mut stack.as_mut().dump[STACK_SIZE - 1]) as u64;
-    let frame = (top - 16) as *mut u64; // space for [arg][entry]
+    let dump = stack.as_mut().dump.as_mut();
+    let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
+    let top_aligned = ((stack_ptr as usize) & !0xF) as u64; // 16-align
+    let frame = (top_aligned - 16) as *mut u64; // space for [arg][entry]
     unsafe {
-        // [0] = arg, [1] = entry
         core::ptr::write(frame.add(0), arg as u64);
         core::ptr::write(frame.add(1), entry as u64);
     }
@@ -216,7 +213,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         rq.tasks.insert(
             1,
             Box::new(Task {
-                _id: id,
+                id,
                 state: TaskState::Ready,
                 ctx: CpuContext {
                     rip: kthread_trampoline as u64,
@@ -227,7 +224,6 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
                 simd: SimdArea {
                     dump: [0; sched_simd::SIZE],
                 },
-                _kstack_top: top,
                 time_slice: DEFAULT_SLICE,
                 _stack: stack,
             }),

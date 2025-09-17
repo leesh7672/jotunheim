@@ -58,7 +58,6 @@ __ctx_switch:
     mov     rsi, [rdx+0x48]
     push    qword [rdx+0x80]           ; may #PF if next.ctx+0x80 unmapped
     mov     rdx, [rdx+0x60]            ; now safe to restore RDX (BASE no longer needed)
-    sti
     ret
 
 .ret_here:
