@@ -55,7 +55,7 @@ impl Stack {
 
 impl CpuStack {
     pub fn new(apic: u32) -> Self {
-        const STACK_SIZE: usize = 0x10000;
+        const STACK_SIZE: usize = 0x100000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         Self {
             dump,

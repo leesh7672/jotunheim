@@ -1,7 +1,11 @@
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::{arch::x86_64::tables::ISR, debug::{self, breakpoint, Outcome, TrapFrame}, kprintln, sched::exit_current};
-
+use crate::{
+    arch::x86_64::tables::ISR,
+    debug::{self, Outcome, TrapFrame, breakpoint},
+    kprintln,
+    sched::{exit_current, kill_current},
+};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
@@ -16,9 +20,8 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
         tf.cs as u16,
         tf.ss as u16
     );
-    exit_current()
+    kill_current()
 }
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
@@ -33,7 +36,7 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
         tf.cs as u16,
         tf.ss as u16
     );
-    exit_current()
+    kill_current()
 }
 
 #[unsafe(no_mangle)]
@@ -51,7 +54,7 @@ pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
             Outcome::SingleStep => {
                 breakpoint::on_resume_step(last_hit);
             }
-            Outcome::KillTask => crate::sched::exit_current(),
+            Outcome::KillTask => kill_current(),
         }
     })
 }
@@ -60,7 +63,7 @@ unsafe extern "C" {
     unsafe fn isr_pf_stub();
     unsafe fn isr_df_stub();
 }
-pub fn init(){
+pub fn init() {
     ISR::registrate(0x0D, isr_gp_stub);
     ISR::registrate_without_stack(0x0E, isr_pf_stub);
     ISR::registrate(0x08, isr_df_stub);

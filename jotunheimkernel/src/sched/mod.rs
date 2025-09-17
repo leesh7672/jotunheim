@@ -13,6 +13,7 @@ extern crate alloc;
 
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
+use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -282,7 +283,7 @@ pub fn sleep() {
 }
 
 pub fn tick() {
-    let Some((prev_ctx, next_ctx)) = with_rq_locked(|rq| {
+    with_rq_locked(|rq| {
         let current = rq.current;
         {
             let t = rq.tasks[current].as_mut();
@@ -311,13 +312,13 @@ pub fn tick() {
         }
 
         if !(rq.need_resched || (cur_is_idle && some_ready)) {
-            return None;
+            return;
         } else {
             let next;
             {
                 let picked = rq.pick_next();
                 if picked.is_none() {
-                    return None;
+                    return;
                 } else {
                     next = picked.unwrap();
                 }
@@ -325,7 +326,7 @@ pub fn tick() {
             {
                 if next == current {
                     rq.need_resched = false;
-                    return None;
+                    return;
                 }
                 {
                     let t = rq.tasks[current].as_mut();
@@ -351,24 +352,25 @@ pub fn tick() {
 
             save(prev_simd);
             restore(next_simd);
-            Some((prev_ctx, next_ctx))
+            switch(prev_ctx, next_ctx);
         }
-    }) else {
-        return;
-    };
-    switch(prev_ctx, next_ctx);
+    });
 }
 /* ------------------------------ Core switching ------------------------------- */
 
 pub fn exit_current() -> ! {
+    kill_current();
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+pub fn kill_current() {
     with_rq_locked(|rq| {
         let task = rq.tasks[rq.current].as_mut();
         task.state = TaskState::Dead;
         task.time_slice = DEFAULT_SLICE * 2;
     });
-    loop {
-        x86_64::instructions::hlt();
-    }
 }
 
 #[unsafe(no_mangle)]

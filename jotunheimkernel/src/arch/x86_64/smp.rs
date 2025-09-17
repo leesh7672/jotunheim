@@ -47,9 +47,9 @@ pub struct ApBoot {
 ///   - paging/GDT/IDT are ready on BSP
 ///   - the trampoline has been assembled and findable via `ap_trampoline::blob()`
 ///   - low identity map for `TRAMP_PHYS` page exists
-pub fn boot_all_aps(boot: BootInfo) {
+pub fn boot_all_aps(boot: &BootInfo) {
     unsafe { HHDM_BASE = boot.hhdm_base };
-    let Some(m) = madt::discover(&boot) else {
+    let Some(m) = madt::discover(boot) else {
         kprintln!("[SMP] No MADT; cannot boot APs.");
         return;
     };
@@ -134,6 +134,7 @@ pub fn boot_all_aps(boot: BootInfo) {
             }
         });
 
+        kprintln!("{:x}", stk_top);
         if stk_va == 0 {
             continue;
         }
@@ -167,11 +168,10 @@ pub fn boot_all_aps(boot: BootInfo) {
         });
 
         // (f) Wait for trampoline to set ready_flag = 1
-        if !wait_ready(&ab_ref.ready_flag as *const u32, 200_000) {
+        if !wait_ready(&ab_ref.ready_flag as *const u32, 1_000_000) {
             kprintln!("[SMP] apic_id {} did not signal ready in time", c.apic_id);
         }
     }
-    kprintln!("A");
 }
 
 /// Very dumb spin delay until you wire your calibrated TSC helper.
