@@ -123,7 +123,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
         let stk_va = stk as u64;
         let stk_top = stk_va + (AP_STACK_PAGES as u64) * 4096 - 0x08;
 
-        let gdt: *mut (Selectors, gdt::CpuGdtPack) = Box::into_raw(Box::new(gdt::generate(c.apic_id)));
+        let gdt: *mut (Selectors, &'static mut GlobalDescriptorTable) = Box::into_raw(Box::new(gdt::generate(c.apic_id)));
 
         if stk_va == 0 {
             continue;
@@ -194,8 +194,8 @@ pub extern "C" fn ap_entry(apboot: &ApBoot) -> ! {
     without_interrupts(|| {
         apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", lapic_id());
-        let gdt = apboot.gdt_ptr as *mut (Selectors, gdt::CpuGdtPack);
-        let sels = unsafe { gdt::load(lapic_id()) };
+        let gdt = apboot.gdt_ptr as *mut (Selectors, &'static mut GlobalDescriptorTable);
+        let sels = gdt::load(gdt);
         kprintln!("Loaded GDT.");
         idt::init(sels);
         kprintln!("Loaded IDT.");
