@@ -16,11 +16,12 @@ use x86_64::{
 };
 
 use crate::{
+    acpi::cpuid::CpuId,
     arch::x86_64::{
         apic::lapic_id,
         tables::{
             ISR, Stack,
-            idt::{self, prepare},
+            idt::{self, load_bsp_idt},
             registrate,
         },
     },
@@ -34,18 +35,26 @@ pub struct Selectors {
     pub tss: SegmentSelector, // lower TSS slot (e.g., 0x28)
 }
 
+pub struct GdtLoader {
+    sels: Selectors,
+    gdt: *mut GlobalDescriptorTable,
+}
+
 fn top_raw(base: *const u8, len: usize) -> VirtAddr {
     // Return top-of-stack (16-byte aligned), without forming &/&mut to static mut
     let end = unsafe { base.add(len) };
     VirtAddr::from_ptr(end).align_down(16u64)
 }
 
-pub fn generate(apic: u32) -> (Selectors, *mut Mutex<Option<GlobalDescriptorTable>>) {
-    let gdt = Box::leak(Box::new(Mutex::new(None)));
-    registrate(apic);
-    (generate_inner(apic, gdt), gdt)
+pub fn generate(cpu: CpuId) -> GdtLoader {
+    let gdt = Box::into_raw(Box::new(GlobalDescriptorTable::new()));
+    registrate(cpu);
+    GdtLoader {
+        sels: generate_inner(cpu, gdt),
+        gdt,
+    }
 }
-fn generate_inner(apic: u32, gdt_ref: &Mutex<Option<GlobalDescriptorTable>>) -> Selectors {
+fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors {
     // Build TSS once; it needs 'static for Descriptor::tss_segment
     let tss_ref: &'static mut TaskStateSegment = {
         let mut t = TaskStateSegment::new();
@@ -53,7 +62,7 @@ fn generate_inner(apic: u32, gdt_ref: &Mutex<Option<GlobalDescriptorTable>>) -> 
         let mut p = 0;
         super::access(|isr| {
             if let Some(stack) = &isr.stack {
-                let stack = stack.me(apic).unwrap();
+                let stack = stack.me(cpu).unwrap();
                 if let (Some(_), Some(_)) = (isr.vector, isr.stub) {
                     isr.index = Some(i);
                     t.interrupt_stack_table[i as usize] =
@@ -70,14 +79,14 @@ fn generate_inner(apic: u32, gdt_ref: &Mutex<Option<GlobalDescriptorTable>>) -> 
     };
 
     // Build descriptors directly into the long-lived GDT that we will later load
-    let mut guard = gdt_ref.lock();
-    let gdt = guard.get_or_insert_with(GlobalDescriptorTable::new);
 
-    let code = gdt.append(Descriptor::kernel_code_segment());
-    let data = gdt.append(Descriptor::kernel_data_segment());
-    let tss = gdt.append(Descriptor::tss_segment(tss_ref));
+    unsafe {
+        let code = (*gdt_ref).append(Descriptor::kernel_code_segment());
+        let data = (*gdt_ref).append(Descriptor::kernel_data_segment());
+        let tss = (*gdt_ref).append(Descriptor::tss_segment(tss_ref));
 
-    Selectors { code, data, tss }
+        Selectors { code, data, tss }
+    }
 }
 
 static BSP_GDT: Mutex<Option<GlobalDescriptorTable>> = Mutex::new(None);
@@ -85,18 +94,22 @@ static BSP_SEL: Mutex<Option<Selectors>> = Mutex::new(None);
 
 /// Build + load GDT/TSS once; return selectors.
 pub fn init() -> Selectors {
-    let gdt = Box::leak(Box::new(Mutex::new(None)));
     ISR::new(None, None, Some(Box::new(Stack::new())));
-    registrate(lapic_id());
-    *BSP_SEL.lock() = Some(generate_inner(lapic_id(), &BSP_GDT));
-    let sels = generate_inner(lapic_id(), &gdt);
-    load_inner(&mut (sels, gdt));
-    sels
+    registrate(CpuId::dummy());
+    let mut gdt = GlobalDescriptorTable::new();
+    let sel = Some(generate_inner(CpuId::dummy(), &mut gdt));
+    *BSP_SEL.lock() = sel;
+    *BSP_GDT.lock() = Some(gdt);
+    load_bsp_gdt(|| {
+        idt::init(sel.unwrap());
+        let gdtinfo = generate(CpuId::me());
+        load_inner(gdtinfo)
+    })
 }
 
-fn load_bsp<R, F>(func: F) -> R
+fn load_bsp_gdt<R, F>(func: F) -> R
 where
-    F: Fn() -> R,
+    F: FnOnce() -> R,
 {
     unsafe {
         let g = BSP_GDT.lock();
@@ -114,24 +127,25 @@ where
     }
 }
 
-pub fn load(gdtinfo: u64) -> Selectors {
-    load_bsp(|| prepare(|| load_inner(gdtinfo as *mut (Selectors, *mut Mutex<Option<GlobalDescriptorTable>>))))
+pub fn ap_init() -> Selectors {
+    load_bsp_gdt(|| {
+        load_bsp_idt(|| {
+            let gdtinfo = generate(CpuId::me());
+            load_inner(gdtinfo)
+        })
+    })
 }
 
-fn load_inner(gdtinfo: *mut (Selectors, *mut Mutex<Option<GlobalDescriptorTable>>)) -> Selectors {
+fn load_inner(gdtinfo: GdtLoader) -> Selectors {
     unsafe {
-        let gdtinfo = gdtinfo
-            as *mut (
-                Selectors,
-                *mut spin::mutex::Mutex<Option<GlobalDescriptorTable>>,
-            );
-        let (sels, gdt) = &mut *gdtinfo;
-        (**gdt).get_mut().as_mut().unwrap().load();
+        let gdt = gdtinfo.gdt;
+        (*gdt).load();
+        let sels = gdtinfo.sels;
         CS::set_reg(sels.code);
         DS::set_reg(sels.data);
         ES::set_reg(sels.data);
         SS::set_reg(sels.data);
         load_tss(sels.tss);
-        *sels
+        sels
     }
 }

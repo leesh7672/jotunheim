@@ -5,6 +5,7 @@ use spin::Mutex;
 
 use crate::arch::x86_64::tables::access;
 use crate::arch::x86_64::tables::gdt::Selectors;
+use crate::kprint;
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
@@ -102,7 +103,7 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
 
 static BSP_IDT: Mutex<Option<Idt>> = Mutex::new(None);
 
-pub fn prepare<F, R>(f: F) -> R
+pub fn load_bsp_idt<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
@@ -131,4 +132,23 @@ pub fn init(sel: Selectors) {
     let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
     unsafe { load_idt_ptr(idt_ptr) };
     *BSP_IDT.lock() = Some(*idt);
+}
+
+pub fn ap_init(sel: Selectors) {
+    let idt = Box::leak(Box::new(Idt([empty_entry(); 256])));
+    for v in 0..=255usize {
+        idt.set_gate(v, isr_default_stub, 0, 0, sel);
+    }
+    access(|isr| {
+        if let (Some(vec), Some(stub)) = (isr.vector, isr.stub) {
+            let index = match isr.index {
+                Some(index) => index,
+                None => 0,
+            };
+            idt.set_gate(vec as usize, stub, index as u8, 0, sel);
+        } else {
+        }
+    });
+    let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
+    unsafe { load_idt_ptr(idt_ptr) };
 }

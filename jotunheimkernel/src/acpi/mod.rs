@@ -2,6 +2,7 @@ use alloc::{boxed::Box, vec::Vec};
 
 // src/acpi/mod.rs
 pub mod madt;
+pub mod cpuid;
 
 #[derive(Debug, Copy, Clone)]
 pub struct CpuEntry {

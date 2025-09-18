@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
+use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
 use crate::kprintln;
 
@@ -28,7 +29,7 @@ pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
 #[repr(C)]
 pub struct CpuStack {
     pub dump: Box<[u8]>,
-    apic_id: u32,
+    cpu: CpuId,
 }
 
 #[derive(Clone, Debug)]
@@ -40,12 +41,12 @@ impl Stack {
     pub fn new() -> Self {
         Self { stacks: Vec::new() }
     }
-    pub fn registrate(&mut self, apic: u32) {
-        self.stacks.insert(0, Box::new(CpuStack::new(apic)));
+    pub fn registrate(&mut self, cpu: CpuId) {
+        self.stacks.insert(0, Box::new(CpuStack::new(cpu)));
     }
-    pub fn me(&self, apic: u32) -> Option<&Box<CpuStack>> {
+    pub fn me(&self, apic: CpuId) -> Option<&Box<CpuStack>> {
         for stack in &self.stacks {
-            if stack.apic_id == apic {
+            if stack.cpu == apic {
                 return Some(stack);
             }
         }
@@ -54,13 +55,10 @@ impl Stack {
 }
 
 impl CpuStack {
-    pub fn new(apic: u32) -> Self {
+    pub fn new(cpu: CpuId) -> Self {
         const STACK_SIZE: usize = 0x4_0000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
-        Self {
-            dump,
-            apic_id: apic,
-        }
+        Self { dump, cpu }
     }
 }
 
@@ -117,10 +115,10 @@ pub fn init() {
     *guard = Some(Box::new(Vec::new()));
 }
 
-pub fn registrate(apic: u32) {
+pub fn registrate(cpu: CpuId) {
     access(|e| {
         if let Some(stack) = e.stack.as_mut() {
-            stack.registrate(apic);
+            stack.registrate(cpu);
         }
     });
 }

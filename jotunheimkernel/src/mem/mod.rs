@@ -258,7 +258,38 @@ unsafe impl<'a> FrameAllocator<Size4KiB> for TinyAllocGuard<'a> {
     }
 }
 
-pub struct PagingHeap {
+struct MutexHeap{
+    inner: Mutex<PagingHeap>
+}
+
+impl MutexHeap {
+    fn init(&self, start: *mut u8, size: usize){
+        unsafe { self.inner.lock().init(start, size) };
+    }
+    const fn new() -> Self{
+        Self{inner: Mutex::new(PagingHeap::empty())}
+    }
+}
+
+unsafe impl GlobalAlloc for MutexHeap {
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        unsafe { self.inner.lock().alloc_zeroed(layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        unsafe {self.inner.lock().realloc(ptr, layout, new_size)}
+    }
+    
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        unsafe {self.inner.lock().alloc(layout)}
+    }
+    
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe {self.inner.lock().dealloc(ptr, layout)}
+    }
+}
+
+struct PagingHeap {
     inner: Mutex<LlHeap>,
     mapped_end: AtomicU64, // [KHEAP_START .. mapped_end) is backed by frames
 }
@@ -364,11 +395,10 @@ unsafe impl GlobalAlloc for PagingHeap {
 }
 
 #[global_allocator]
-static GLOBAL_ALLOC: PagingHeap = PagingHeap::empty();
+static GLOBAL_ALLOC: MutexHeap = MutexHeap::new();
+static LOW32_ALLOC: spin::Mutex<Option<simple_alloc::TinyBump>> = Mutex::new(None);
 
-static LOW32_ALLOC: spin::Mutex<Option<simple_alloc::TinyBump>> = spin::Mutex::new(None);
-
-const MAX_USABLE: usize = 128;
+const MAX_USABLE: usize = 256;
 static USABLE: Mutex<HVec<(u64, u64), MAX_USABLE>> = Mutex::new(HVec::new()); // [(start,end))
 
 pub fn seed_usable_from_mmap(boot: &BootInfo) {
@@ -408,78 +438,4 @@ fn fallback_take_frame() -> Option<PhysFrame<Size4KiB>> {
         // exhausted this range; continue to next
     }
     None
-}
-
-#[cfg(debug_assertions)]
-mod debug_alloc {
-    use super::*;
-    const GUARD: u64 = 0xD15EA5E5_DEADBEEF;
-
-    #[repr(C)]
-    struct Header {
-        size: usize,
-        guard: u64,
-    }
-
-    pub struct GuardedHeap {
-        inner: &'static PagingHeap,
-    }
-
-    impl GuardedHeap {
-        pub const fn new(inner: &'static PagingHeap) -> Self {
-            Self { inner }
-        }
-        unsafe fn real_layout(layout: Layout) -> Layout {
-            let head = core::mem::size_of::<Header>();
-            Layout::from_size_align(
-                head + layout.size() + 16, // 16-byte tail canary
-                layout.align().max(core::mem::align_of::<Header>()),
-            )
-            .unwrap()
-        }
-        pub unsafe fn init(&self, start: *mut u8, size: usize) {
-            unsafe {
-                self.inner.init(start, size);
-            }
-        }
-    }
-
-    unsafe impl GlobalAlloc for GuardedHeap {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            unsafe {
-                let rl = Self::real_layout(layout);
-                let p = self.inner.alloc(rl);
-                if p.is_null() {
-                    return p;
-                }
-                let h = &mut *(p as *mut Header);
-                h.size = layout.size();
-                h.guard = GUARD;
-                let user = (p as *mut u8).add(core::mem::size_of::<Header>());
-                // tail canary
-                core::ptr::write_bytes(user.add(layout.size()), 0xCC, 16);
-                user
-            }
-        }
-        unsafe fn dealloc(&self, user: *mut u8, layout: Layout) {
-            // header & canary checks
-            let h = unsafe {
-                &mut *(user.offset(-(core::mem::size_of::<Header>() as isize)) as *mut Header)
-            };
-            if h.guard != GUARD {
-                panic!("heap: corrupted header or double free @ {:p}", user);
-            }
-            let tail = unsafe { core::slice::from_raw_parts(user.add(layout.size()), 16) };
-            if tail.iter().any(|&b| b != 0xCC) {
-                panic!("heap: write past end (tail canary) @ {:p}", user);
-            }
-            // poison header to catch double free
-            let hmut = unsafe { &mut *(h as *mut Header) };
-            hmut.guard = 0;
-            let rl = unsafe { Self::real_layout(layout) };
-            let real =
-                unsafe { (user as *mut u8).offset(-(core::mem::size_of::<Header>() as isize)) };
-            unsafe { self.inner.dealloc(real, rl) };
-        }
-    }
 }
