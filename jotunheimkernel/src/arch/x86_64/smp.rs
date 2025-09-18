@@ -19,12 +19,12 @@ use crate::{
         apic::{self, lapic_id},
         tables::{
             access,
-            gdt::{self, Selectors, load_bsp},
+            gdt::{self, load_bsp, Selectors},
             idt,
         },
     },
     bootinfo::BootInfo,
-    kprintln, mem,
+    kprintln, mem, sched,
 };
 
 use crate::arch::x86_64::ap_trampoline;
@@ -166,7 +166,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
         });
 
         // (f) Wait for trampoline to set ready_flag = 1
-        if !wait_ready(&ab_ref.ready_flag as *const u32, 200_000) {
+        if !wait_ready(&ab_ref.ready_flag as *const u32, 4_000) {
             kprintln!("[SMP] apic_id {} did not signal ready in time", c.apic_id);
         }
     }
@@ -188,7 +188,7 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
         if v != 0 {
             return true;
         }
-        core::hint::spin_loop();
+        sched::sleep();
     }
     false
 }
@@ -198,6 +198,7 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
     without_interrupts(|| {
         let boot: ApBoot = *apboot;
+        apboot.ready_flag = 1;
         apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", lapic_id());
         let gdt = boot.gdt_ptr
@@ -220,7 +221,6 @@ pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
                 }
             }
         });
-        apboot.ready_flag = 1;
     });
 
     loop {
