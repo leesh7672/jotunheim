@@ -18,9 +18,7 @@ use crate::{
     arch::x86_64::{
         apic::{self, lapic_id},
         tables::{
-            access,
-            gdt::{self, Selectors},
-            idt,
+            self, access, gdt::{self, Selectors}, idt
         },
     },
     bootinfo::BootInfo,
@@ -194,7 +192,7 @@ pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
         apic::ap_init(unsafe { HHDM_BASE });
         apboot.ready_flag = 1;
         kprintln!("Hello from {}", lapic_id());
-        idt::ap_init(gdt::ap_init());
+        tables::ap_init();
         kprintln!("Loaded GDT and IDT");
         let mut stk_va = 0;
         let mut stk_top = 0;

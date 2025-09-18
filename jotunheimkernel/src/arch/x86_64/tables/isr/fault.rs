@@ -77,7 +77,6 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
     }
 }
 
-#[cfg(debug_assertions)]
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
     if cfg!(debug_assertions) {

@@ -8,11 +8,13 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use spin::mutex::Mutex;
-use x86_64::instructions::interrupts::without_interrupts;
+use x86_64::instructions::interrupts::{self, without_interrupts};
 
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
+use crate::arch::x86_64::tables::idt::load_bsp_idt;
 use crate::kprintln;
+use crate::sched::spawn;
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
@@ -127,10 +129,35 @@ pub fn access<F>(mut func: F)
 where
     F: FnMut(&mut ISR) -> (),
 {
-    without_interrupts(|| {
-        let mut guard = IST.lock();
-        for e in guard.as_mut().unwrap().iter_mut() {
-            func(e.as_mut());
-        }
+    let mut guard = IST.lock();
+    for e in guard.as_mut().unwrap().iter_mut() {
+        func(e.as_mut());
+    }
+}
+
+pub fn ap_init() {
+    load_bsp_idt(|| {
+        load_bsp_idt(|| {
+            let id = CpuId::me();
+            let mut gdt = None;
+
+            kprintln!("A");
+            spawn(|| {
+                kprintln!("B");
+                registrate(id);
+                gdt = Some(gdt::generate(id));
+            });
+            kprintln!("C");
+            loop {
+                if gdt.is_none() {
+                    continue;
+                } else {
+                    kprintln!("D");
+                    idt::ap_init(gdt::load_inner(gdt.unwrap()));
+                    kprintln!("E");
+                    break;
+                }
+            }
+        })
     })
 }

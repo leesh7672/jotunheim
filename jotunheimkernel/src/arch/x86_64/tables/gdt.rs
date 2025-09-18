@@ -4,15 +4,12 @@ use alloc::boxed::Box;
 
 use spin::Mutex;
 use x86_64::{
-    VirtAddr,
     instructions::{
-        segmentation::{CS, DS, ES, SS, Segment},
-        tables::load_tss,
-    },
-    structures::{
+        interrupts, segmentation::{Segment, CS, DS, ES, SS}, tables::load_tss
+    }, structures::{
         gdt::{self, Descriptor, GlobalDescriptorTable, SegmentSelector},
         tss::TaskStateSegment,
-    },
+    }, VirtAddr
 };
 
 use crate::{
@@ -48,12 +45,12 @@ fn top_raw(base: *const u8, len: usize) -> VirtAddr {
 
 pub fn generate(cpu: CpuId) -> GdtLoader {
     let gdt = Box::into_raw(Box::new(GlobalDescriptorTable::new()));
-    registrate(cpu);
     GdtLoader {
         sels: generate_inner(cpu, gdt),
         gdt,
     }
 }
+
 fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors {
     // Build TSS once; it needs 'static for Descriptor::tss_segment
     let tss_ref: &'static mut TaskStateSegment = {
@@ -102,6 +99,7 @@ pub fn init() -> Selectors {
     *BSP_GDT.lock() = Some(gdt);
     load_bsp_gdt(|| {
         idt::init(sel.unwrap());
+        registrate(CpuId::me());
         let gdtinfo = generate(CpuId::me());
         load_inner(gdtinfo)
     })
@@ -127,16 +125,7 @@ where
     }
 }
 
-pub fn ap_init() -> Selectors {
-    load_bsp_gdt(|| {
-        load_bsp_idt(|| {
-            let gdtinfo = generate(CpuId::me());
-            load_inner(gdtinfo)
-        })
-    })
-}
-
-fn load_inner(gdtinfo: GdtLoader) -> Selectors {
+pub(super) fn load_inner(gdtinfo: GdtLoader) -> Selectors {
     unsafe {
         let gdt = gdtinfo.gdt;
         (*gdt).load();
