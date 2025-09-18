@@ -19,7 +19,7 @@ use crate::{
         apic::{self, lapic_id},
         tables::{
             access,
-            gdt::{self, load_bsp, Selectors},
+            gdt::{self, Selectors},
             idt,
         },
     },
@@ -201,12 +201,10 @@ pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
         apboot.ready_flag = 1;
         apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", lapic_id());
-        let gdt = boot.gdt_ptr
-            as *mut (
-                Selectors,
-                *mut spin::mutex::Mutex<Option<GlobalDescriptorTable>>,
-            );
-        idt::init(gdt::load(gdt));
+        let gdt = boot.gdt_ptr;
+        let sels = gdt::load(gdt);
+        kprintln!("Loaded GDT.");
+        idt::init(sels);
         kprintln!("Loaded IDT.");
         let mut stk_va = 0;
         let mut stk_top = 0;

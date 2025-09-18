@@ -94,7 +94,7 @@ pub fn init() -> Selectors {
     sels
 }
 
-pub fn load_bsp<R, F>(func: F) -> R
+fn load_bsp<R, F>(func: F) -> R
 where
     F: Fn() -> R,
 {
@@ -114,16 +114,17 @@ where
     }
 }
 
-pub fn load(gdtinfo: *mut (Selectors, *mut Mutex<Option<GlobalDescriptorTable>>)) -> Selectors {
-    load_bsp(|| {
-        prepare(|| {
-            load_inner(gdtinfo)
-        })
-    })
+pub fn load(gdtinfo: u64) -> Selectors {
+    load_bsp(|| prepare(|| load_inner(gdtinfo as *mut (Selectors, *mut Mutex<Option<GlobalDescriptorTable>>))))
 }
 
 fn load_inner(gdtinfo: *mut (Selectors, *mut Mutex<Option<GlobalDescriptorTable>>)) -> Selectors {
     unsafe {
+        let gdtinfo = gdtinfo
+            as *mut (
+                Selectors,
+                *mut spin::mutex::Mutex<Option<GlobalDescriptorTable>>,
+            );
         let (sels, gdt) = &mut *gdtinfo;
         (**gdt).get_mut().as_mut().unwrap().load();
         CS::set_reg(sels.code);
