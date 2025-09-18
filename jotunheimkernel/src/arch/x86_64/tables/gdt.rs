@@ -78,7 +78,7 @@ pub fn generate(apic: u32) -> (Selectors, &'static mut GlobalDescriptorTable) {
     (sels, gdt)
 }
 
-/// Build + load GDT/TSS once; return selectors. Safe to call multiple times.
+/// Build + load GDT/TSS once; return selectors.
 pub fn init() -> Selectors {
     ISR::new(None, None, Some(Box::new(Stack::new())));
     let (sels, gdt) = generate(lapic_id());

@@ -195,7 +195,7 @@ pub extern "C" fn ap_entry(apboot: &ApBoot) -> ! {
         apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", lapic_id());
         let gdt = apboot.gdt_ptr as *mut (Selectors, gdt::CpuGdtPack);
-        let sels = unsafe { gdt::load(lapic_id()) };
+        let sels = unsafe { gdt::load(gdt) };
         kprintln!("Loaded GDT.");
         idt::init(sels);
         kprintln!("Loaded IDT.");
