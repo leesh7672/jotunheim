@@ -19,7 +19,7 @@ use crate::{
         apic::{self, lapic_id},
         tables::{
             access,
-            gdt::{self, Selectors},
+            gdt::{self, Selectors, load_bsp},
             idt,
         },
     },
@@ -31,6 +31,7 @@ use crate::arch::x86_64::ap_trampoline;
 
 static mut HHDM_BASE: u64 = 0;
 
+#[derive(Debug, Clone, Copy)]
 #[repr(C, align(16))]
 pub struct ApBoot {
     pub ready_flag: u32, // set to 1 by the trampoline just before jumping to ap_entry()
@@ -117,25 +118,29 @@ pub fn boot_all_aps(boot: &BootInfo) {
         }
 
         // (b) Per-AP stack: 32 KiB VMAP (guaranteed mapped)
-        const AP_STACK_PAGES: usize = 8; // 8 * 4KiB = 32KiB
+        const AP_STACK_PAGES: usize = 64; // 8 * 4KiB = 32KiB
         let stk =
             crate::mem::vmap_alloc_pages(AP_STACK_PAGES).expect("[SMP] vmap stack alloc failed");
         let stk_va = stk as u64;
         let stk_top = stk_va + (AP_STACK_PAGES as u64) * 4096 - 0x08;
 
-        let gdt: *mut (Selectors, &'static mut GlobalDescriptorTable) = Box::into_raw(Box::new(gdt::generate(c.apic_id)));
+        let gdt: *mut (
+            Selectors,
+            *mut spin::mutex::Mutex<Option<GlobalDescriptorTable>>,
+        ) = Box::into_raw(Box::new(gdt::generate(c.apic_id)));
 
         if stk_va == 0 {
             continue;
         }
 
+        let test: *mut i32 = Box::into_raw(Box::new(1));
         // (c) Fill ApBoot (BSP writes VA, AP will read PA we pass to trampoline)
         *ab_ref = ApBoot {
             ready_flag: 0,
             _pad: 0,
             cr3,
             gdt_ptr: gdt as u64,
-            idt_ptr: 0,
+            idt_ptr: test as u64,
             stack_top: stk_top, // <-- VA, valid under CR3
             entry64,
             hhdm: boot.hhdm_base, // for HHDM conversions on AP if needed
@@ -190,14 +195,17 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 
 /// What each AP runs after the trampoline puts us in 64-bit mode.
 #[unsafe(no_mangle)]
-pub extern "C" fn ap_entry(apboot: &ApBoot) -> ! {
+pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
     without_interrupts(|| {
+        let boot: ApBoot = *apboot;
         apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", lapic_id());
-        let gdt = apboot.gdt_ptr as *mut (Selectors, &'static mut GlobalDescriptorTable);
-        let sels = gdt::load(gdt);
-        kprintln!("Loaded GDT.");
-        idt::init(sels);
+        let gdt = boot.gdt_ptr
+            as *mut (
+                Selectors,
+                *mut spin::mutex::Mutex<Option<GlobalDescriptorTable>>,
+            );
+        idt::init(gdt::load(gdt));
         kprintln!("Loaded IDT.");
         let mut stk_va = 0;
         let mut stk_top = 0;
@@ -212,6 +220,7 @@ pub extern "C" fn ap_entry(apboot: &ApBoot) -> ! {
                 }
             }
         });
+        apboot.ready_flag = 1;
     });
 
     loop {

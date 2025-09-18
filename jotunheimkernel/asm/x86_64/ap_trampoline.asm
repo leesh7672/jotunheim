@@ -112,8 +112,7 @@ lm64:
 
     mov rsp, [rax + 0x20]     ; ApBoot.stack_top
     mov rcx, [rax + 0x28]     ; ApBoot.entry64
-
-    mov dword [rax + 0x00], 1 ; ApBoot.ready_flag = 1   (dword, not qword!)
+    
     pop rdi
     jmp rcx                   ; -> ap_entry()
 

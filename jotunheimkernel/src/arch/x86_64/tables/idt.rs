@@ -1,6 +1,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 use alloc::boxed::Box;
+use spin::Mutex;
 
 use crate::arch::x86_64::tables::access;
 use crate::arch::x86_64::tables::gdt::Selectors;
@@ -9,7 +10,7 @@ use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct IdtEntry {
     offset_low: u16,
     selector: u16,
@@ -32,12 +33,14 @@ const fn empty_entry() -> IdtEntry {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct Idtr {
     pub limit: u16,
     pub base: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct Idt([IdtEntry; 256]);
 
@@ -97,6 +100,19 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
     }
 }
 
+static BSP_IDT: Mutex<Option<Idt>> = Mutex::new(None);
+
+pub fn prepare<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let idt = BSP_IDT.lock().unwrap().0;
+    unsafe { load_idt_ptr(&idt[0]) };
+    let r = f();
+    let _ = idt;
+    r
+}
+
 pub fn init(sel: Selectors) {
     let idt = Box::leak(Box::new(Idt([empty_entry(); 256])));
     for v in 0..=255usize {
@@ -114,4 +130,5 @@ pub fn init(sel: Selectors) {
     });
     let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
     unsafe { load_idt_ptr(idt_ptr) };
+    *BSP_IDT.lock() = Some(*idt);
 }
