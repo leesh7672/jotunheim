@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
 
-use spin::Mutex;
 use x86_64::{
     VirtAddr,
     instructions::{
@@ -13,9 +12,11 @@ use x86_64::{
     },
 };
 
-use crate::arch::x86_64::{
-    apic::lapic_id,
-    tables::{ISR, Stack, registrate},
+use crate::{
+    arch::x86_64::{
+        apic::lapic_id,
+        tables::{registrate, Stack, ISR},
+    }, kprintln
 };
 
 #[derive(Copy, Clone)]

@@ -4,20 +4,19 @@
 extern crate alloc;
 
 use core::{
-    arch::asm,
     ptr,
     sync::atomic::{Ordering, compiler_fence},
 };
 
+use alloc::boxed::Box;
 use x86_64::{
-    instructions::{hlt, interrupts::without_interrupts},
-    structures::gdt::GlobalDescriptorTable,
+    instructions::interrupts::without_interrupts, structures::gdt::GlobalDescriptorTable,
 };
 
 use crate::{
     acpi::madt,
     arch::x86_64::{
-        apic,
+        apic::{self, lapic_id},
         tables::{
             access,
             gdt::{self, Selectors},
@@ -118,23 +117,13 @@ pub fn boot_all_aps(boot: &BootInfo) {
         }
 
         // (b) Per-AP stack: 32 KiB VMAP (guaranteed mapped)
-        let gdt = gdt::generate(c.apic_id);
-        let gdt_ptr: *const (Selectors, &'static mut GlobalDescriptorTable) = &raw const gdt;
+        const AP_STACK_PAGES: usize = 8; // 8 * 4KiB = 32KiB
+        let stk =
+            crate::mem::vmap_alloc_pages(AP_STACK_PAGES).expect("[SMP] vmap stack alloc failed");
+        let stk_va = stk as u64;
+        let stk_top = stk_va + (AP_STACK_PAGES as u64) * 4096 - 0x08;
 
-        let mut stk_va: u64 = 0;
-        let mut stk_top = 0;
-
-        access(|e| {
-            if !matches!(e.stub, None) {
-                if !matches!(e.vector, None) {
-                    if let Some(stack) = &e.stack {
-                        stk_va = &raw const stack.me(c.apic_id).unwrap().dump[0] as u64;
-                        stk_top =
-                            (stk_va + stack.me(c.apic_id).unwrap().dump.len() as u64 - 0x10) & !0xF;
-                    }
-                }
-            }
-        });
+        let gdt: *mut (Selectors, gdt::CpuGdtPack) = Box::into_raw(Box::new(gdt::generate(c.apic_id)));
 
         if stk_va == 0 {
             continue;
@@ -145,12 +134,15 @@ pub fn boot_all_aps(boot: &BootInfo) {
             ready_flag: 0,
             _pad: 0,
             cr3,
-            gdt_ptr: gdt_ptr as u64,
+            gdt_ptr: gdt as u64,
             idt_ptr: 0,
             stack_top: stk_top, // <-- VA, valid under CR3
             entry64,
             hhdm: boot.hhdm_base, // for HHDM conversions on AP if needed
         };
+
+        let frame = (stk_top) as *mut u64; // space for [arg][entry]
+        unsafe { core::ptr::write(frame.add(0), &raw mut *ab_ref as u64) };
 
         // (d) Patch trampoline with **physical** address of ApBoot
         unsafe {
@@ -169,7 +161,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
         });
 
         // (f) Wait for trampoline to set ready_flag = 1
-        if !wait_ready(&ab_ref.ready_flag as *const u32, 1_000_000) {
+        if !wait_ready(&ab_ref.ready_flag as *const u32, 200_000) {
             kprintln!("[SMP] apic_id {} did not signal ready in time", c.apic_id);
         }
     }
@@ -198,13 +190,31 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 
 /// What each AP runs after the trampoline puts us in 64-bit mode.
 #[unsafe(no_mangle)]
-pub extern "C" fn ap_entry() -> ! {
-    kprintln!("AP");
-    apic::ap_init(unsafe { HHDM_BASE });
-    kprintln!("Hello from {}", apic::lapic_id());
-    //idt::init(gdt::load(gdt_ptr as *const (Selectors, &'static mut GlobalDescriptorTable)));
-    kprintln!("Ready");
+pub extern "C" fn ap_entry(apboot: &ApBoot) -> ! {
+    without_interrupts(|| {
+        apic::ap_init(unsafe { HHDM_BASE });
+        kprintln!("Hello from {}", lapic_id());
+        let gdt = apboot.gdt_ptr as *mut (Selectors, gdt::CpuGdtPack);
+        let sels = unsafe { gdt::load(lapic_id()) };
+        kprintln!("Loaded GDT.");
+        idt::init(sels);
+        kprintln!("Loaded IDT.");
+        let mut stk_va = 0;
+        let mut stk_top = 0;
+        access(|e| {
+            if !matches!(e.stub, None) {
+                if !matches!(e.vector, None) {
+                    if let Some(stack) = &e.stack {
+                        stk_va = &raw const stack.me(lapic_id()).unwrap().dump[0] as u64;
+                        stk_top = (stk_va + stack.me(lapic_id()).unwrap().dump.len() as u64 - 0x10)
+                            & !0xF;
+                    }
+                }
+            }
+        });
+    });
+
     loop {
-        unsafe { asm!("hlt") };
+        x86_64::instructions::hlt();
     }
 }
