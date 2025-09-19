@@ -4,7 +4,7 @@
         {
             "label": "build",
             "type": "process",
-            "command": "bsdmake",
+            "command": "make",
             "args": [
                 "distclean",
                 "all"
