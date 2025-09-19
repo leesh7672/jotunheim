@@ -1,4 +1,4 @@
-use crate::{arch::x86_64::{apic, tables::ISR}, debug::TrapFrame, sched};
+use crate::{arch::x86_64::{apic, tables::ISR}, debug::TrapFrame, kprintln, sched};
 
 
 #[unsafe(no_mangle)]

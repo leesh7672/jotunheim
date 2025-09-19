@@ -13,6 +13,7 @@ extern crate alloc;
 
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
+use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -312,7 +313,10 @@ pub fn tick() {
             {
                 if next == current {
                     rq.need_resched = false;
-                    return None;
+                    let t = rq.tasks[current].as_mut();
+                    if t.state == TaskState::Running {
+                        return None;
+                    }
                 }
                 {
                     let t = rq.tasks[current].as_mut();
@@ -333,7 +337,7 @@ pub fn tick() {
     restore(next.simd.as_mut_ptr());
     switch(&mut prev.ctx, &mut next.ctx);
     save(next.simd.as_mut_ptr());
-    restore(next.simd.as_mut_ptr());
+    restore(prev.simd.as_mut_ptr());
 }
 /* ------------------------------ Core switching ------------------------------- */
 
