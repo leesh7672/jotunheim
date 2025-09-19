@@ -13,7 +13,6 @@ extern crate alloc;
 
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
