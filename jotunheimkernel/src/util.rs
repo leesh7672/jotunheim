@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 unsafe extern "C" {
     unsafe static __bss_start: u8;
     unsafe static __bss_end: u8;

@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 use x86_64::instructions::interrupts::without_interrupts;
-
 use crate::{arch::x86_64::tables::ISR, debug::{self, breakpoint, Outcome, TrapFrame}};
 
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::identity_op)]
 

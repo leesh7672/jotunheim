@@ -1,0 +1,41 @@
+Jotunheim Open-Source Software Licence (JOSSL) v1.0
+
+Copyright (C) 2025 The Jotunheim Project
+
+Section 1 — Grant of Rights
+Subject to the conditions set forth herein, permission is granted to any person or legal entity to:
+1. Use, execute, and otherwise run the Software in both source and binary form, for any purpose, including commercial exploitation.
+2. Distribute verbatim copies of the Software in binary form, with or without charge.
+3. Create derivative works of the Software, provided such works remain subject to the obligations described in Section 2.
+
+Section 2 — Source Code Availability and Copyleft
+1. Any distribution of the Software in source form, or of any derivative work, must be accompanied by the complete, corresponding source code, made publicly accessible under the terms of this Licence.
+2. Derivative works must be licensed under JOSSL v1.0 or any later version officially published by the Jotunheim Project.
+3. Relicensing of the Software or derivative works under proprietary or closed-source terms is strictly prohibited.
+
+Section 3 — Binary Distribution
+1. Unmodified binaries produced by the Jotunheim Project may be distributed, sold, or sublicensed without the obligation to provide source code.
+2. Binaries produced from modified versions of the Software may be distributed or sold only if accompanied by the corresponding source code as required under Section 2.
+
+Section 4 — Linking Exception
+1. Software that merely links to, interacts with, or uses the published interfaces, system libraries, or runtime components of the Software shall not be considered a derivative work for the purposes of Section 2.
+2. Such linked software may be distributed under any licence terms, including proprietary or commercial licences.
+3. This exception applies solely to independent works; modifications of the Software itself remain governed by Section 2.
+
+Section 5 — External Dependencies
+1. The Software may incorporate or depend upon third-party components distributed under separate open-source licences.
+2. Nothing in this Licence shall be interpreted as altering or superseding the obligations imposed by such third-party licences.
+3. Any distributor of the Software must comply both with this Licence and with all applicable third-party licence terms.
+
+Section 6 — Trademarks
+1. “Jotunheim” and associated logos are trademarks of the Jotunheim Project.
+2. You may distribute unmodified versions of the Software under the name “Jotunheim.”
+3. Modified versions may not be presented or implied as official Jotunheim releases without prior written authorisation.
+
+Section 7 — Disclaimer of Warranty
+The Software is provided “AS IS”, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+Section 8 — Limitation of Liability
+In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the Software or the use or distribution thereof.
+
+SPDX-License-Identifier: JOSSL-1.0

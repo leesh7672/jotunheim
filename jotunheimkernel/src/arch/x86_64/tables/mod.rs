@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 pub mod gdt;
 pub mod idt;
 pub mod isr;

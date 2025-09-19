@@ -1,5 +1,6 @@
 // src/arch/x86_64/context.rs
-
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 #[repr(C)]
 pub struct TrapFrame {
     pub r15: u64,

@@ -1,4 +1,6 @@
 // src/arch/x86_64/ap_trampoline.rs
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 #[allow(improper_ctypes)]
 unsafe extern "C" {
     unsafe static _ap_tramp_start: u8;

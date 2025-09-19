@@ -1,3 +1,6 @@
+/*
+SPDX-License-Identifier: JOSSL-1.0
+Copyright (C) 2025 The Jotunheim Project */
 /* kernel.ld — x86_64 bare-metal EXEC kernel */
 OUTPUT_FORMAT(elf64-x86-64)
 OUTPUT_ARCH(i386:x86-64)

@@ -1,4 +1,6 @@
 // boot/src/cpu_simd.rs
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 #![allow(dead_code)]
 
 use core::arch::x86_64::{__cpuid, __cpuid_count, _xsetbv};

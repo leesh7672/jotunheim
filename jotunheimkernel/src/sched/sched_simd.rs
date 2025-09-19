@@ -1,5 +1,6 @@
 // src/sched/simd.rs
-
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 pub const SIZE: usize = 4096;
 
 #[derive(Clone, Debug)]

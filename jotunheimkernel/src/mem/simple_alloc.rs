@@ -1,4 +1,6 @@
 // src/mem/simple_alloc.rs
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 use x86_64::{
     PhysAddr,
     structures::paging::{FrameAllocator, PhysFrame, Size4KiB},

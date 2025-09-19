@@ -1,5 +1,6 @@
 // src/arch/x86_64/simd.rs
-
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 pub mod caps;
 
 use core::arch::asm;

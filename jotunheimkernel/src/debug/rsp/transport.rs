@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 pub trait Transport {
     fn getc_block(&self) -> u8;
     fn putc(&self, b: u8);

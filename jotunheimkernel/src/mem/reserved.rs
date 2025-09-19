@@ -1,4 +1,6 @@
 // src/mem/reserved.rs
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 #![allow(dead_code)]
 
 use heapless::Vec as HVec;

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 use core::arch::x86_64::{__cpuid_count, _rdtsc};
 
 pub fn rdtsc() -> u64 {

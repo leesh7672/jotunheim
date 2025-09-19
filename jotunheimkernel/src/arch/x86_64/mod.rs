@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 mod ap_trampoline;
 pub mod apic;
 pub mod context;

@@ -1,4 +1,6 @@
 // build.rs — force ELF64 so extern/relocs work
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 use std::{env, path::PathBuf};
 
 fn main() {

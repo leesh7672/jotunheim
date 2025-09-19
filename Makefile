@@ -1,5 +1,6 @@
 # Makefile — Jotunheim OS (bootloader + kernel + ESP + QEMU) [FreeBSD bmake]
-
+# SPDX-License-Identifier: JOSSL-1.0
+# Copyright (C) 2025 The Jotunheim Project
 # ===== Toolchains / versions =====
 RUSTUP           ?= rustup
 TOOLCHAIN        ?= stable

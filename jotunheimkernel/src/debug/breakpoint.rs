@@ -1,4 +1,6 @@
 // src/debug/breakpoint.rs
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 #![allow(unsafe_op_in_unsafe_fn)]
 use spin::Mutex;
 use x86_64::registers::control::{Cr0, Cr0Flags};

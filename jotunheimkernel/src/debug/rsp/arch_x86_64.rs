@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 use crate::debug::TrapFrame;
-
 pub struct X86_64Core;
 
 pub const G_HEX_LEN: usize = 572;

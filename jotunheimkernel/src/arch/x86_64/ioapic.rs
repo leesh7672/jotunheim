@@ -1,5 +1,6 @@
 // src/arch/x86_64/ioapic.rs
-
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 const IOAPIC_BASE: usize = 0xFEC0_0000;
 const IOREGSEL: usize = 0x00;
 const IOWIN: usize = 0x10;

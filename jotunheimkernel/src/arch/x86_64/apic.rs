@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 

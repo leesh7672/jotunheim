@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Framebuffer {
