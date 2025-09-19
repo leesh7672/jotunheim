@@ -138,9 +138,7 @@ pub fn init() {
             }),
         );
     });
-}
 
-pub fn smp() {
     spawn(|| {
         loop {
             with_rq_locked(|rq| {
