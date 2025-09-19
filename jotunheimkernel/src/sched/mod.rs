@@ -162,7 +162,7 @@ pub fn init() {
                 }
             });
             for _ in 0..100000 {
-                sleep();
+                yield_now();
             }
         }
     });
@@ -231,7 +231,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     })
 }
 
-pub fn sleep() {
+pub fn yield_now() {
     let Some((mut prev, mut next)) = with_rq_locked(|rq| {
         let current = rq.current;
         let next;
@@ -344,7 +344,7 @@ pub fn tick() {
 pub fn exit_current() -> ! {
     kill_current();
     loop {
-        sleep();
+        yield_now();
         x86_64::instructions::hlt();
     }
 }

@@ -179,7 +179,7 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
         if v != 0 {
             return true;
         }
-        sched::sleep();
+        sched::yield_now();
     }
     false
 }
