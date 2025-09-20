@@ -145,14 +145,12 @@ pub fn ap_init() {
 
             registrate(id);
             gdt = Some(gdt::generate(id));
-            
+
             loop {
-                if gdt.is_none() {
+                if gdt.is_none() {seh
                     continue;
                 } else {
-                    kprintln!("D");
                     idt::ap_init(gdt::load_inner(gdt.unwrap()));
-                    kprintln!("E");
                     break;
                 }
             }
