@@ -5,12 +5,27 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::{
     arch::x86_64::tables::ISR,
     debug::{self, Outcome, TrapFrame, breakpoint},
-    kprintln,
     sched::exit_current,
 };
+use crate::faultsvc::{self, TrapFrameView};
+use crate::arch::x86_64::tsc;
+use x86_64::registers::control::Cr2;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
+    // Log the general protection fault immediately. Do not print here.
+    let tf_ref = unsafe { &*tf };
+    let view = TrapFrameView {
+        rip: tf_ref.rip,
+        cs: tf_ref.cs as u64,
+        rflags: tf_ref.rflags,
+        rsp: tf_ref.rsp,
+        ss: tf_ref.ss as u64,
+    };
+    let cr2 = 0;
+    let tsc = tsc::rdtsc();
+    faultsvc::log_from_isr(0x0D, tf_ref.err as u64, true, &view, cr2, tsc);
+
     if cfg!(debug_assertions) {
         without_interrupts(|| {
             let last_hit = {
@@ -29,23 +44,26 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
             }
         })
     } else {
-        let tf = unsafe { &*tf };
-        kprintln!(
-            "[#GP] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
-            tf.vec,
-            tf.err,
-            tf.rip,
-            tf.rsp,
-            tf.rflags,
-            tf.cs as u16,
-            tf.ss as u16
-        );
+        // In non-debug builds, avoid printing inside an ISR. Just terminate the task.
         exit_current()
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
+    // Log the page fault immediately. Do not print here.
+    let tf_ref = unsafe { &*tf };
+    let view = TrapFrameView {
+        rip: tf_ref.rip,
+        cs: tf_ref.cs as u64,
+        rflags: tf_ref.rflags,
+        rsp: tf_ref.rsp,
+        ss: tf_ref.ss as u64,
+    };
+    let cr2 = Cr2::read().as_u64();
+    let tsc = tsc::rdtsc();
+    faultsvc::log_from_isr(0x0E, tf_ref.err as u64, true, &view, cr2, tsc);
+
     if cfg!(debug_assertions) {
         without_interrupts(|| {
             let last_hit = {
@@ -64,23 +82,26 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
             }
         })
     } else {
-        let tf = unsafe { &*tf };
-        kprintln!(
-            "[#PF] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
-            tf.vec,
-            tf.err,
-            tf.rip,
-            tf.rsp,
-            tf.rflags,
-            tf.cs as u16,
-            tf.ss as u16
-        );
+        // In non-debug builds, avoid printing inside an ISR. Just terminate the task.
         exit_current()
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
+    // Log the double fault immediately. Do not print here.
+    let tf_ref = unsafe { &*tf };
+    let view = TrapFrameView {
+        rip: tf_ref.rip,
+        cs: tf_ref.cs as u64,
+        rflags: tf_ref.rflags,
+        rsp: tf_ref.rsp,
+        ss: tf_ref.ss as u64,
+    };
+    let cr2 = 0;
+    let tsc = tsc::rdtsc();
+    faultsvc::log_from_isr(0x08, tf_ref.err as u64, true, &view, cr2, tsc);
+
     if cfg!(debug_assertions) {
         without_interrupts(|| {
             let last_hit = {
@@ -99,17 +120,7 @@ pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
             }
         })
     } else {
-        let tf = unsafe { &*tf };
-        kprintln!(
-            "[#DF] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
-            tf.vec,
-            tf.err,
-            tf.rip,
-            tf.rsp,
-            tf.rflags,
-            tf.cs as u16,
-            tf.ss as u16
-        );
+        // In non-debug builds, avoid printing inside an ISR. Just terminate the task.
         exit_current()
     }
 }

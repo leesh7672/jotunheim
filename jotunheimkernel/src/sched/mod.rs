@@ -168,6 +168,24 @@ pub fn init() {
             }
         }
     });
+
+    // After the scheduler has been initialized, drain and print any faults
+    // captured during early boot. Printing here avoids formatting inside ISRs.
+    crate::faultsvc::drain_and_print(|r| {
+        crate::kprintln!(
+            "[fault.boot] cpu={} vec={} err={:#x} rip={:#018x} rsp={:#018x} rflags={:#018x} cs={:#06x} ss={:#06x} cr2={:#018x} tsc={}",
+            r.cpu,
+            r.vector,
+            r.error_code,
+            r.rip,
+            r.rsp,
+            r.rflags,
+            r.cs as u16,
+            r.ss as u16,
+            r.cr2,
+            r.tsc
+        );
+    });
 }
 
 struct ThreadFn<F>

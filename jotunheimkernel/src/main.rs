@@ -10,6 +10,7 @@ mod debug;
 mod mem;
 mod sched;
 mod util;
+mod faultsvc;
 
 extern crate alloc;
 

@@ -56,6 +56,20 @@ pub fn boot_all_aps(boot: &BootInfo) {
         return;
     };
 
+    // Initialize fault logging for SMP: determine CPU count and install a CPU
+    // index function that returns the current APIC ID. This preserves any
+    // records captured before SMP init.
+    {
+        let cpu_count = m.cpus.iter().filter(|c| c.enabled).count();
+        fn cpu_index_from_lapic() -> usize {
+            // Use the LAPIC ID as the CPU index. This works because APIC IDs
+            // are unique. If APIC IDs are sparse, adapt this function to map
+            // IDs to contiguous indices.
+            lapic_id() as usize
+        }
+        crate::faultsvc::init_smp(core::cmp::max(cpu_count, 1), cpu_index_from_lapic);
+    }
+
     // --- 1) Trampoline: copy once to low physical page (e.g., 0x8000) ---
     const TRAMP_PHYS: u64 = 0x1000; // 32KiB, <1MiB, 4KiB aligned
     let (blob, p32_off, p64_off) = ap_trampoline::blob();
