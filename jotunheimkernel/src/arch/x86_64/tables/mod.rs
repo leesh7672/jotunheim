@@ -147,7 +147,7 @@ pub fn ap_init() {
             gdt = Some(gdt::generate(id));
 
             loop {
-                if gdt.is_none() {seh
+                if gdt.is_none() {
                     continue;
                 } else {
                     idt::ap_init(gdt::load_inner(gdt.unwrap()));
