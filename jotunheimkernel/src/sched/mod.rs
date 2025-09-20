@@ -15,7 +15,6 @@ extern crate alloc;
 
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -144,6 +143,7 @@ pub fn init() {
     spawn(|| {
         loop {
             with_rq_locked(|rq| {
+                kprintln!("A");
                 let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
                 let mut deads = Vec::<u64>::new();
                 for task in tasks.iter_mut() {
@@ -162,8 +162,9 @@ pub fn init() {
                     }
                     tasks.remove(i);
                 }
+                kprintln!("B");
             });
-            for _ in 0..100000 {
+            for _ in 0..10000 {
                 yield_now();
             }
         }
@@ -264,22 +265,15 @@ pub fn yield_now() {
             }
         }
         {
-            if next == current {
-                rq.need_resched = false;
-                return None;
-            }
-            {
-                let t = rq.tasks[current].as_mut();
-                if t.time_slice != u32::MAX {
-                    t.state = TaskState::Ready;
-                    t.time_slice = DEFAULT_SLICE;
-                }
+            let t = rq.tasks[current].as_mut();
+            if t.time_slice != u32::MAX {
+                t.state = TaskState::Ready;
+                t.time_slice = DEFAULT_SLICE;
             }
         }
         rq.tasks[next].as_mut().state = TaskState::Running;
         Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
     }) else {
-        hlt();
         return;
     };
     save(prev.simd.as_mut_ptr());
