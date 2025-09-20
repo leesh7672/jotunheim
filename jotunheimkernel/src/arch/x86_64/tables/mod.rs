@@ -144,11 +144,8 @@ pub fn ap_init() {
             let mut gdt = None;
 
             kprintln!("A");
-            spawn(|| {
-                kprintln!("B");
-                registrate(id);
-                gdt = Some(gdt::generate(id));
-            });
+            registrate(id);
+            gdt = Some(gdt::generate(id));
             kprintln!("C");
             loop {
                 if gdt.is_none() {
