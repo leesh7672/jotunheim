@@ -12,7 +12,7 @@ use core::{
 
 use alloc::boxed::Box;
 use x86_64::{
-    instructions::interrupts::without_interrupts, structures::gdt::GlobalDescriptorTable,
+    instructions::{hlt, interrupts::without_interrupts}, structures::gdt::GlobalDescriptorTable,
 };
 
 use crate::{
@@ -195,7 +195,7 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
         if v != 0 {
             return true;
         }
-        sched::yield_now();
+        hlt();
     }
     false
 }

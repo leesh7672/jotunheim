@@ -15,6 +15,7 @@ extern crate alloc;
 
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
+use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -69,7 +70,7 @@ impl RunQueue {
             }
         }
         let t0 = &self.tasks[0];
-        if matches!(t0.state, TaskState::Ready) && self.current != 0 {
+        if matches!(t0.state, TaskState::Ready) {
             return Some(0);
         }
         None
@@ -143,7 +144,6 @@ pub fn init() {
     spawn(|| {
         loop {
             with_rq_locked(|rq| {
-                kprintln!("A");
                 let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
                 let mut deads = Vec::<u64>::new();
                 for task in tasks.iter_mut() {
@@ -162,10 +162,9 @@ pub fn init() {
                     }
                     tasks.remove(i);
                 }
-                kprintln!("B");
             });
-            for _ in 0..10000 {
-                yield_now();
+            for _ in 0..1000{
+                hlt();
             }
         }
     });
@@ -229,9 +228,8 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
-
         rq.tasks.insert(
-            1,
+            0,
             Box::new(Task {
                 id,
                 state: TaskState::Ready,
@@ -252,36 +250,6 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     })
 }
 
-pub fn yield_now() {
-    let Some((mut prev, mut next)) = with_rq_locked(|rq| {
-        let current = rq.current;
-        let next;
-        {
-            let picked = rq.pick_next();
-            if picked.is_none() {
-                return None;
-            } else {
-                next = picked.unwrap();
-            }
-        }
-        {
-            let t = rq.tasks[current].as_mut();
-            if t.time_slice != u32::MAX {
-                t.state = TaskState::Ready;
-                t.time_slice = DEFAULT_SLICE;
-            }
-        }
-        rq.tasks[next].as_mut().state = TaskState::Running;
-        Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
-    }) else {
-        return;
-    };
-    save(prev.simd.as_mut_ptr());
-    restore(next.simd.as_mut_ptr());
-    switch(&mut prev.ctx, &mut next.ctx);
-    save(next.simd.as_mut_ptr());
-    restore(next.simd.as_mut_ptr());
-}
 
 pub fn tick() {
     let Some((mut prev, mut next)) = with_rq_locked(|rq| {
@@ -350,16 +318,13 @@ pub fn tick() {
     save(prev.simd.as_mut_ptr());
     restore(next.simd.as_mut_ptr());
     switch(&mut prev.ctx, &mut next.ctx);
-    save(next.simd.as_mut_ptr());
-    restore(prev.simd.as_mut_ptr());
 }
 /* ------------------------------ Core switching ------------------------------- */
 
 pub fn exit_current() -> ! {
     kill_current();
     loop {
-        yield_now();
-        x86_64::instructions::hlt();
+        hlt();
     }
 }
 
@@ -393,7 +358,7 @@ where
                 tasks: Vec::new(),
                 current: 0,
                 next_id: 0,
-                need_resched: false,
+                need_resched: true,
             }));
             ret = f(guard.as_mut().unwrap().as_mut())
         }

@@ -7,10 +7,10 @@ mod acpi;
 mod arch;
 mod bootinfo;
 mod debug;
+mod faultsvc;
 mod mem;
 mod sched;
 mod util;
-mod faultsvc;
 
 extern crate alloc;
 
@@ -57,6 +57,9 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     kprintln!("\n*** KERNEL PANIC ***\n{}", info);
+    if cfg!(debug_assertions) {
+        interrupts::int3();
+    }
     loop {
         x86_64::instructions::hlt();
     }
