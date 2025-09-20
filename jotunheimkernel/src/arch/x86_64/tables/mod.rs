@@ -143,10 +143,9 @@ pub fn ap_init() {
             let id = CpuId::me();
             let mut gdt = None;
 
-            kprintln!("A");
             registrate(id);
             gdt = Some(gdt::generate(id));
-            kprintln!("C");
+            
             loop {
                 if gdt.is_none() {
                     continue;
