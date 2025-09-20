@@ -67,7 +67,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
             // IDs to contiguous indices.
             lapic_id() as usize
         }
-        crate::faultsvc::init_smp(core::cmp::max(cpu_count, 1), cpu_index_from_lapic);
+        unsafe { crate::faultsvc::init_smp(core::cmp::max(cpu_count, 1), cpu_index_from_lapic) };
     }
 
     // --- 1) Trampoline: copy once to low physical page (e.g., 0x8000) ---

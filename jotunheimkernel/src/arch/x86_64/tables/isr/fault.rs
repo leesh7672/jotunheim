@@ -60,7 +60,7 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
         rsp: tf_ref.rsp,
         ss: tf_ref.ss as u64,
     };
-    let cr2 = Cr2::read().as_u64();
+    let cr2 = Cr2::read().ok().map(|v| v.as_u64()).unwrap_or(0);
     let tsc = tsc::rdtsc();
     faultsvc::log_from_isr(0x0E, tf_ref.err as u64, true, &view, cr2, tsc);
 

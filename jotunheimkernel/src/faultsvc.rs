@@ -1,8 +1,11 @@
 // faultsvc.rs — ISR-safe fault logging, early-boot friendly
-#![allow(dead_code)]
+// SPDX-License-Identifier: JOSSL-1.0
+// Copyright (C) 2025 The Jotunheim Project
+#![allow(unsafe_op_in_unsafe_fn)]
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize};
 use core::sync::atomic::Ordering::{Acquire, Release, Relaxed};
+use core::cell::UnsafeCell;      
 
 /// Maximum number of CPUs supported by the fault logger.
 pub const MAX_CPUS: usize = 64;
@@ -59,26 +62,33 @@ struct State {
     rings: [Ring; MAX_CPUS],
     cpu_index_fn: fn() -> usize,
 }
+struct GlobalState(UnsafeCell<State>);
+
+// Safety: All shared mutation is guarded by atomics and the publish/commit seq protocol.
+// Readers use Acquire and producers use Release. No references to the inner state escape
+// without synchronization. Therefore it is sound to mark the wrapper as Sync.
+unsafe impl Sync for GlobalState {}
 
 const EMPTY_SLOT: Slot = Slot { seq: AtomicU64::new(0), rec: MaybeUninit::uninit() };
 const EMPTY_RING: Ring = Ring { head: AtomicUsize::new(0), slots: [EMPTY_SLOT; RING_LEN] };
 const AU64: AtomicU64 = AtomicU64::new(0);
 
-#[unsafe(link_section = ".bss")]
-static mut STATE: State = State {
+static STATE: GlobalState = GlobalState(UnsafeCell::new(State {
     max_cpus: AtomicUsize::new(1),
     seq: [AU64; MAX_CPUS],
     rings: [EMPTY_RING; MAX_CPUS],
     cpu_index_fn: || 0,
-};
+}));
 
 /// Initialize SMP support for the fault logger. Keeps any early-boot logs intact.
 pub fn init_smp(max_cpus: usize, cpu_index_fn: fn() -> usize) {
     unsafe {
-        STATE.max_cpus.store(max_cpus.min(MAX_CPUS), Relaxed);
-        STATE.cpu_index_fn = cpu_index_fn;
+        let st: &mut State = &mut *STATE.0.get();
+        st.max_cpus.store(max_cpus.min(MAX_CPUS), Relaxed);
+        st.cpu_index_fn = cpu_index_fn;
     }
 }
+
 
 /// Log a fault from an ISR. Never allocates or locks.
 pub fn log_from_isr(
@@ -90,8 +100,8 @@ pub fn log_from_isr(
     tsc: u64,
 ) {
     unsafe {
-        let max = STATE.max_cpus.load(Relaxed);
-        let cpu_ix = (STATE.cpu_index_fn)().min(max.saturating_sub(1));
+        let max = (*STATE.0.get()).max_cpus.load(Relaxed);
+        let cpu_ix = ((*STATE.0.get()).cpu_index_fn)().min(max.saturating_sub(1));
         push(cpu_ix, FaultRecord {
             cpu: cpu_ix as u32,
             vector,
@@ -121,29 +131,29 @@ pub fn snapshot_cpu(cpu_ix: usize, out: &mut [FaultRecord]) -> usize {
 }
 
 unsafe fn push(cpu_ix: usize, mut rec: FaultRecord) {
-    let ring = &STATE.rings[cpu_ix];
+    let ring = &mut (*STATE.0.get()).rings[cpu_ix];
     let head = ring.head.fetch_add(1, Relaxed);
     let idx = head % RING_LEN;
-    let seq = STATE.seq[cpu_ix].fetch_add(1, Relaxed) + 1;
+    let seq = (*STATE.0.get()).seq[cpu_ix].fetch_add(1, Relaxed) + 1;
     rec.seq = seq;
-    let slot = &ring.slots[idx];
+    let slot = &mut ring.slots[idx];
     slot.seq.store((seq << 1) | 1, Relaxed);
-    slot.rec.as_mut_ptr().write(rec);
+    unsafe { slot.rec.as_mut_ptr().write(rec) };
     slot.seq.store(seq << 1, Release);
 }
 
 unsafe fn drain_impl(print: &mut impl FnMut(&FaultRecord)) {
-    let max = STATE.max_cpus.load(Relaxed);
+    let max = (*STATE.0.get()).max_cpus.load(Relaxed);
     for cpu_ix in 0..max {
-        let produced = STATE.seq[cpu_ix].load(Relaxed);
+        let produced = (*STATE.0.get()).seq[cpu_ix].load(Relaxed);
         let from = produced.saturating_sub(RING_LEN as u64) + 1;
-        let ring = &STATE.rings[cpu_ix];
+        let ring = &mut (*STATE.0.get()).rings[cpu_ix];
         for seq in from..=produced {
             let idx = ((seq - 1) as usize) % RING_LEN;
-            let slot = &ring.slots[idx];
+            let slot = &mut ring.slots[idx];
             let s = slot.seq.load(Acquire);
             if s != (seq << 1) { continue; }
-            let rec = slot.rec.assume_init_ref();
+            let rec = unsafe { slot.rec.assume_init_ref() };
             if rec.seq != seq { continue; }
             print(rec);
         }
@@ -151,19 +161,19 @@ unsafe fn drain_impl(print: &mut impl FnMut(&FaultRecord)) {
 }
 
 unsafe fn snapshot_impl(cpu_ix: usize, out: &mut [FaultRecord]) -> usize {
-    let max = STATE.max_cpus.load(Relaxed);
+    let max = (*STATE.0.get()).max_cpus.load(Relaxed);
     if cpu_ix >= max || out.is_empty() { return 0; }
-    let produced = STATE.seq[cpu_ix].load(Relaxed);
+    let produced = (*STATE.0.get()).seq[cpu_ix].load(Relaxed);
     let want = core::cmp::min(out.len() as u64, RING_LEN as u64);
     let start = produced.saturating_sub(want) + 1;
-    let ring = &STATE.rings[cpu_ix];
+    let ring = &mut (*STATE.0.get()).rings[cpu_ix];
     let mut n = 0usize;
     for seq in start..=produced {
         let idx = ((seq - 1) as usize) % RING_LEN;
-        let slot = &ring.slots[idx];
+        let slot = &mut ring.slots[idx];
         let s = slot.seq.load(Acquire);
         if s != (seq << 1) { continue; }
-        let rec = slot.rec.assume_init_ref();
+        let rec = unsafe { slot.rec.assume_init_ref() };
         if rec.seq != seq { continue; }
         out[n] = *rec;
         n += 1;
