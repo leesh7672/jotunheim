@@ -6,6 +6,7 @@
 extern crate alloc;
 
 use core::{
+    arch::{self, asm},
     ptr,
     sync::atomic::{Ordering, compiler_fence},
 };
@@ -187,6 +188,10 @@ pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
     without_interrupts(|| {
         let boot: ApBoot = *apboot;
         apboot.ready_flag = 1;
+        unsafe {
+            asm!("mov cr3, {0}", in(reg) boot.cr3, 
+            options(nostack, preserves_flags));
+        }
         apic::ap_init(boot.hhdm);
         kprintln!("Hello from {}", lapic_id());
         tables::ap_init();
