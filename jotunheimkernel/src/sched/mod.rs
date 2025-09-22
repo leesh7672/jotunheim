@@ -14,8 +14,9 @@ use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;
 
-use crate::arch::native::context::{CpuContext, switch};
+use crate::arch::native::context::{switch, CpuContext};
 use crate::arch::native::simd::{restore, save};
+use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -81,7 +82,6 @@ impl RunQueue {
 }
 
 /* Thread Stack */
-
 #[derive(Clone, Debug)]
 struct ThreadStack {
     dump: Box<[u8]>,
@@ -142,32 +142,31 @@ pub fn init() {
             }),
         );
     });
-    spawn(|| {
-        loop {
-            with_rq_locked(|rq| {
-                let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
-                let mut deads = Vec::<u64>::new();
-                for task in tasks.iter_mut() {
-                    if task.state == TaskState::Dead {
-                        if task.time_slice == 0 {
-                            deads.insert(0, task.id);
-                        } else {
-                            task.time_slice -= 1;
-                        }
-                    }
-                }
-                for id in deads {
-                    let mut i = 0;
-                    while id == tasks[i].id {
-                        i += 1;
-                    }
-                    tasks.remove(i);
-                }
-            });
-            for _ in 0..100 {
-                yield_now();
-            }
+    spawn(|| loop {
+        kprintln!("X");
+        for _ in 0..1000 {
+            yield_now();
         }
+        with_rq_locked(|rq| {
+            let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
+            let mut deads = Vec::<u64>::new();
+            for task in tasks.iter_mut() {
+                if task.state == TaskState::Dead {
+                    if task.time_slice == 0 {
+                        deads.insert(0, task.id);
+                    } else {
+                        task.time_slice -= 1;
+                    }
+                }
+            }
+            for id in deads {
+                let mut i = 0;
+                while id == tasks[i].id {
+                    i += 1;
+                }
+                tasks.remove(i);
+            }
+        });
     });
 }
 
@@ -230,6 +229,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
             }),
         );
         rq.current += 1;
+        rq.need_resched = true;
         id
     })
 }
@@ -262,8 +262,6 @@ pub fn yield_now() {
     save(prev.simd.as_mut_ptr());
     restore(next.simd.as_mut_ptr());
     switch(&mut prev.ctx, &mut next.ctx);
-    save(next.simd.as_mut_ptr());
-    restore(prev.simd.as_mut_ptr());
 }
 
 pub fn tick() {
@@ -329,8 +327,8 @@ pub fn tick() {
             };
 
             // Capture stable raw pointers (Boxes don’t move)
-            let prev_ctx = &mut prev.ctx as *mut _;
-            let next_ctx = &mut next.ctx as *mut _;
+            let prev_ctx = &raw mut prev.ctx;
+            let next_ctx = &raw mut next.ctx;
             let prev_simd = prev.simd.as_mut_ptr();
             let next_simd = next.simd.as_mut_ptr();
 
