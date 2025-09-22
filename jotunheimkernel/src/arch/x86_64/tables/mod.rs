@@ -121,9 +121,7 @@ pub fn init() {
 
 pub fn registrate(cpu: CpuId) {
     access(|e| {
-        kprintln!("1");
         if let Some(stack) = e.stack.as_mut() {
-            kprintln!("2");
             stack.registrate(cpu);
         }
     });
@@ -134,9 +132,14 @@ where
     F: FnMut(&mut ISR) -> (),
 {
     without_interrupts(|| {
+        kprintln!("1");
         let mut guard = IST.lock();
-        for e in guard.as_mut().unwrap().iter_mut() {
-            func(e.as_mut());
+        kprintln!("2");
+        let ist = guard.as_mut();
+        kprintln!("3");
+        for e in ist.unwrap().iter_mut() {
+            kprintln!("4");
+            func(e);
         }
     })
 }
