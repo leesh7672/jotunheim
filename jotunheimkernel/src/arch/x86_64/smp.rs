@@ -10,21 +10,18 @@ use core::{
     sync::atomic::{Ordering, compiler_fence},
 };
 
-use alloc::boxed::Box;
-use x86_64::{
-    instructions::{hlt, interrupts::without_interrupts}, structures::gdt::GlobalDescriptorTable,
-};
+use x86_64::instructions::{hlt, interrupts::without_interrupts};
 
 use crate::{
     acpi::{cpuid::CpuId, madt},
     arch::x86_64::{
         apic::{self, lapic_id},
         tables::{
-            self, access, gdt::{self, Selectors}, idt
+            self, access
         },
     },
     bootinfo::BootInfo,
-    kprintln, mem, sched,
+    kprintln, mem,
 };
 
 use crate::arch::x86_64::ap_trampoline;
