@@ -7,7 +7,6 @@ mod acpi;
 mod arch;
 mod bootinfo;
 mod debug;
-mod faultsvc;
 mod mem;
 mod sched;
 mod util;
