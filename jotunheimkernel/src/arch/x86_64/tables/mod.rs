@@ -143,14 +143,20 @@ pub fn ap_init() {
             let id = CpuId::me();
             let mut gdt = None;
 
-            registrate(id);
-            gdt = Some(gdt::generate(id));
-
+            kprintln!("A");
+            spawn(|| {
+                kprintln!("B");
+                registrate(id);
+                gdt = Some(gdt::generate(id));
+            });
+            kprintln!("C");
             loop {
                 if gdt.is_none() {
                     continue;
                 } else {
+                    kprintln!("D");
                     idt::ap_init(gdt::load_inner(gdt.unwrap()));
+                    kprintln!("E");
                     break;
                 }
             }
