@@ -59,7 +59,7 @@ fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors 
         let mut t = TaskStateSegment::new();
         let mut i = 0;
         let mut p = 0;
-        super::access(|isr| {
+        super::access_mut(|isr| {
             if let Some(stack) = &isr.stack {
                 let stack = stack.me(cpu).unwrap();
                 if let (Some(_), Some(_)) = (isr.vector, isr.stub) {
