@@ -77,7 +77,7 @@ static STARTED: Once<()> = Once::new();
 
 /// Call once when the scheduler is up (e.g., end of `sched::init()`).
 /// Spawns one server thread that turns queued slots into `sched::spawn(closure)`d threads.
-pub fn start_server() {
+pub fn init() {
     STARTED.call_once(|| {
         // Your public scheduler API takes closures — perfect.
         crate::sched::spawn(|| server_main());
