@@ -267,7 +267,7 @@ pub fn yield_now() {
 }
 
 pub fn tick() {
-    let Some((mut prev, mut next)) = with_rq_locked(|rq| {
+    let Some((prev_ptr, prev_simd, next_ptr, next_simd)) = with_rq_locked(|rq| {
         let current = rq.current;
         {
             let t = rq.tasks[current].as_mut();
@@ -298,13 +298,13 @@ pub fn tick() {
         if !(rq.need_resched || (cur_is_idle && some_ready)) {
             return None;
         } else {
-            let next;
+            let next_idx;
             {
                 let picked = rq.pick_next();
                 if picked.is_none() {
                     return None;
                 } else {
-                    next = picked.unwrap();
+                    next_idx = picked.unwrap();
                 }
             }
             {
@@ -314,17 +314,36 @@ pub fn tick() {
                     t.time_slice = DEFAULT_SLICE;
                 }
             }
-            rq.tasks[next].as_mut().state = TaskState::Running;
-            Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
+            rq.tasks[next_idx].as_mut().state = TaskState::Running;
+            let prev_idx = current;
+            let (prev, next) = if prev_idx < next_idx {
+                let (left, right) = rq.tasks.split_at_mut(next_idx);
+                let prev = &mut left[prev_idx];
+                let next = &mut right[0]; // element at next_idx
+                (prev, next)
+            } else {
+                let (left, right) = rq.tasks.split_at_mut(prev_idx);
+                let next = &mut left[next_idx]; // element at next_idx
+                let prev = &mut right[0]; // element at prev_idx
+                (prev, next)
+            };
+
+            // Capture stable raw pointers (Boxes don’t move)
+            let prev_ctx = &mut prev.ctx as *mut _;
+            let next_ctx = &mut next.ctx as *mut _;
+            let prev_simd = prev.simd.as_mut_ptr();
+            let next_simd = next.simd.as_mut_ptr();
+
+            Some((prev_ctx, prev_simd, next_ctx, next_simd))
         }
     }) else {
         return;
     };
-    save(prev.simd.as_mut_ptr());
-    restore(next.simd.as_mut_ptr());
-    switch(&mut prev.ctx, &mut next.ctx);
-    save(next.simd.as_mut_ptr());
-    restore(prev.simd.as_mut_ptr());
+    unsafe {
+        save(prev_simd);
+        restore(next_simd);
+        switch(&mut *prev_ptr, &mut *next_ptr);
+    }
 }
 /* ------------------------------ Core switching ------------------------------- */
 
