@@ -203,9 +203,9 @@ pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
     without_interrupts(|| {
         let boot: ApBoot = *apboot;
         apic::ap_init(unsafe { HHDM_BASE });
-        apboot.ready_flag = 1;
         kprintln!("Hello from {}", lapic_id());
         tables::ap_init();
+        apboot.ready_flag = 1;
         kprintln!("Loaded GDT and IDT");
         let mut stk_va = 0;
         let mut stk_top = 0;

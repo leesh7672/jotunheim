@@ -121,7 +121,9 @@ pub fn init() {
 
 pub fn registrate(cpu: CpuId) {
     access(|e| {
+        kprintln!("1");
         if let Some(stack) = e.stack.as_mut() {
+            kprintln!("2");
             stack.registrate(cpu);
         }
     });
@@ -131,35 +133,25 @@ pub fn access<F>(mut func: F)
 where
     F: FnMut(&mut ISR) -> (),
 {
-    let mut guard = IST.lock();
-    for e in guard.as_mut().unwrap().iter_mut() {
-        func(e.as_mut());
-    }
+    without_interrupts(|| {
+        let mut guard = IST.lock();
+        for e in guard.as_mut().unwrap().iter_mut() {
+            func(e.as_mut());
+        }
+    })
 }
 
 pub fn ap_init() {
     load_bsp_idt(|| {
         load_bsp_idt(|| {
             let id = CpuId::me();
-            let mut gdt = None;
-
             kprintln!("A");
-            spawn(|| {
-                kprintln!("B");
-                registrate(id);
-                gdt = Some(gdt::generate(id));
-            });
+            registrate(id);
+            kprintln!("B");
+            let gdt = gdt::generate(id);
             kprintln!("C");
-            loop {
-                if gdt.is_none() {
-                    continue;
-                } else {
-                    kprintln!("D");
-                    idt::ap_init(gdt::load_inner(gdt.unwrap()));
-                    kprintln!("E");
-                    break;
-                }
-            }
+            idt::ap_init(gdt::load_inner(gdt));
+            kprintln!("D");
         })
     })
 }
