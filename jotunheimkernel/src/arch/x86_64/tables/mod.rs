@@ -143,9 +143,10 @@ pub fn ap_init() {
             let id = CpuId::me();
             let mut gdt = None;
 
-            registrate(id);
-            gdt = Some(gdt::generate(id));
-
+            spawn(|| {
+                registrate(id);
+                gdt = Some(gdt::generate(id));
+            });
             loop {
                 if gdt.is_none() {
                     continue;
