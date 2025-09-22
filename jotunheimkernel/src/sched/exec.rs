@@ -4,9 +4,8 @@
 
 use heapless::Deque;
 use spin::{Mutex, Once};
-use x86_64::instructions::hlt;
 
-use crate::{kprintln, sched};
+use crate::sched;
 
 // Tune as needed
 const QUEUE_CAPACITY: usize = 64; // max pending closures (early AP)

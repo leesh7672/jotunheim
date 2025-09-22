@@ -44,8 +44,8 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         native::init(&boot);
         sched::init();
         sched::spawn(|| {
-            exec::init();
             kprintln!("[JOTUNHEIM] Started the kernel main thread.");
+            exec::init();
             boot_all_aps(boot);
             kprintln!("[JOTUNHEIM] Ended the kernel main thread.");
         });

@@ -69,6 +69,9 @@ impl RunQueue {
                 break;
             }
         }
+        if matches!(self.tasks[self.current].state, TaskState::Ready) {
+            return Some(i);
+        }
         let t0 = &self.tasks[0];
         if matches!(t0.state, TaskState::Ready) {
             return Some(0);
@@ -86,7 +89,7 @@ struct ThreadStack {
 
 impl ThreadStack {
     fn new() -> Self {
-        const STACK_SIZE: usize = 0x8_0000;
+        const STACK_SIZE: usize = 0x4_0000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         ThreadStack { dump }
     }
@@ -139,7 +142,6 @@ pub fn init() {
             }),
         );
     });
-
     spawn(|| {
         loop {
             with_rq_locked(|rq| {
@@ -245,19 +247,10 @@ pub fn yield_now() {
             }
         }
         {
-            if next == current {
-                rq.need_resched = false;
-                let t = rq.tasks[current].as_mut();
-                if t.state == TaskState::Running {
-                    return None;
-                }
-            }
-            {
-                let t = rq.tasks[current].as_mut();
-                t.state = TaskState::Ready;
-                if t.time_slice != u32::MAX {
-                    t.time_slice = DEFAULT_SLICE;
-                }
+            let t = rq.tasks[current].as_mut();
+            t.state = TaskState::Ready;
+            if t.time_slice != u32::MAX {
+                t.time_slice = DEFAULT_SLICE;
             }
         }
         rq.tasks[next].as_mut().state = TaskState::Running;
@@ -312,13 +305,6 @@ pub fn tick() {
                     return None;
                 } else {
                     next = picked.unwrap();
-                }
-            }
-            if next == current {
-                rq.need_resched = false;
-                let t = rq.tasks[current].as_mut();
-                if t.state == TaskState::Running {
-                    return None;
                 }
             }
             {
