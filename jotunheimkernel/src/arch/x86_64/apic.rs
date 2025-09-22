@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 use core::ptr::{read_volatile, write_volatile};
-use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 //
 // ─────────────────────────── Raw helpers (Rust 2024) ─────────────────────────
@@ -76,9 +76,9 @@ pub const SPURIOUS_VECTOR: u8 = 0xFF;
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum Mode {
     Unknown,
-    X2Apic,                    // MSR-backed
-    XApicPhys { phys: u64 },   // before HHDM (phase 1)
-    XApic { base: *mut u32 },  // MMIO via HHDM (phase 2)
+    X2Apic,                   // MSR-backed
+    XApicPhys { phys: u64 },  // before HHDM (phase 1)
+    XApic { base: *mut u32 }, // MMIO via HHDM (phase 2)
 }
 
 static MODE: AtomicU8 = AtomicU8::new(0); // 0=Unknown,1=X2,2=XPhys,3=X
@@ -291,7 +291,11 @@ pub fn ipi_fixed(dest_apic: u32, vector: u8) {
 /// Start per-CPU local timer (periodic). Replace with calibration later.
 pub fn start_timer_hz(hz: u32) {
     // Coarse initial count that behaves under QEMU/TCG; replace with real calibration.
-    let init = if hz == 0 { 100_000 } else { 10_000_000 / hz.max(1) };
+    let init = if hz == 0 {
+        100_000
+    } else {
+        10_000_000 / hz.max(1)
+    };
     match load_mode() {
         Mode::X2Apic => {
             // LVT Timer MSR: periodic (bit17), vector = TIMER_VECTOR
@@ -330,8 +334,8 @@ fn icr_busy_x() -> bool {
 fn icr_wait() {
     // Small spin until hardware clears the in-progress bit
     match load_mode() {
-        Mode::X2Apic => { while icr_busy_x2() {} }
-        Mode::XApic { .. } => { while icr_busy_x() {} }
+        Mode::X2Apic => while icr_busy_x2() {},
+        Mode::XApic { .. } => while icr_busy_x() {},
         _ => {}
     }
 }
@@ -371,7 +375,10 @@ pub fn send_init(dest_apic: u32) {
             let base = (hhdm + phys) as *mut u32;
             unsafe {
                 write_volatile(base.add(LAPIC_ICRHI), (dest_apic as u32) << 24);
-                write_volatile(base.add(LAPIC_ICRLO), (0b101u32 << 8) | (1 << 15) | (1 << 14));
+                write_volatile(
+                    base.add(LAPIC_ICRLO),
+                    (0b101u32 << 8) | (1 << 15) | (1 << 14),
+                );
             }
             // coarse wait
             while (unsafe { read_volatile(base.add(LAPIC_ICRLO)) } & (1 << 12)) != 0 {}

@@ -15,7 +15,6 @@ extern crate alloc;
 
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -163,7 +162,7 @@ pub fn init() {
                     tasks.remove(i);
                 }
             });
-            for _ in 0..1000{
+            for _ in 0..1000 {
                 hlt();
             }
         }
@@ -231,7 +230,6 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         id
     })
 }
-
 
 pub fn tick() {
     let Some((mut prev, mut next)) = with_rq_locked(|rq| {

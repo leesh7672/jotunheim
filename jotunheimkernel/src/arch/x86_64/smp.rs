@@ -13,12 +13,10 @@ use core::{
 use x86_64::instructions::{hlt, interrupts::without_interrupts};
 
 use crate::{
-    acpi::{cpuid::CpuId, madt},
+    acpi::madt,
     arch::x86_64::{
         apic::{self, lapic_id},
-        tables::{
-            self, access_mut
-        },
+        tables::{self},
     },
     bootinfo::BootInfo,
     kprintln, mem,

@@ -29,7 +29,6 @@ const MAX_RESV: usize = 128;
 
 static RESV: Mutex<HVec<Resv, MAX_RESV>> = Mutex::new(HVec::new());
 
-
 fn align_down(x: u64, a: u64) -> u64 {
     x & !(a - 1)
 }

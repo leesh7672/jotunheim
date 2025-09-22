@@ -5,7 +5,6 @@ const IOAPIC_BASE: usize = 0xFEC0_0000;
 const IOREGSEL: usize = 0x00;
 const IOWIN: usize = 0x10;
 
-
 unsafe fn ioregsel() -> *mut u32 {
     (IOAPIC_BASE + IOREGSEL) as *mut u32
 }

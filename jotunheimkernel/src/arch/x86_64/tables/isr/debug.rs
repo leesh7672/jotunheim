@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
+use crate::{
+    arch::x86_64::tables::ISR,
+    debug::{self, Outcome, TrapFrame, breakpoint},
+};
 use x86_64::instructions::interrupts::without_interrupts;
-use crate::{arch::x86_64::tables::ISR, debug::{self, breakpoint, Outcome, TrapFrame}};
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_db_rust(tf: *mut TrapFrame) {
@@ -50,12 +52,12 @@ pub extern "C" fn isr_bp_rust(tf: *mut TrapFrame) {
     })
 }
 
-unsafe extern "C"{
+unsafe extern "C" {
     unsafe fn isr_db_stub();
     unsafe fn isr_bp_stub();
 }
 
-pub fn init(){
+pub fn init() {
     ISR::registrate(0x01, isr_db_stub);
     ISR::registrate(0x03, isr_bp_stub);
 }

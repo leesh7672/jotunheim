@@ -12,6 +12,6 @@ unsafe extern "C" {
     unsafe fn isr_ud_stub();
 }
 
-pub fn init(){
+pub fn init() {
     ISR::registrate_without_stack(0x06, isr_ud_stub);
 }

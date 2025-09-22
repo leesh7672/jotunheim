@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
-use core::f64::consts;
 
 use alloc::boxed::Box;
 
@@ -8,27 +7,22 @@ use spin::Mutex;
 use x86_64::{
     VirtAddr,
     instructions::{
-        interrupts,
         segmentation::{CS, DS, ES, SS, Segment},
         tables::load_tss,
     },
     structures::{
-        gdt::{self, Descriptor, GlobalDescriptorTable, SegmentSelector},
+        gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
         tss::TaskStateSegment,
     },
 };
 
 use crate::{
     acpi::cpuid::CpuId,
-    arch::x86_64::{
-        apic::lapic_id,
-        tables::{
-            ISR, Stack,
-            idt::{self, load_bsp_idt},
-            registrate,
-        },
+    arch::x86_64::tables::{
+        ISR, Stack,
+        idt::{self},
+        registrate,
     },
-    kprint, kprintln,
 };
 
 #[derive(Copy, Clone)]

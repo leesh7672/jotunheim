@@ -52,7 +52,6 @@ const CR4_OSFXSR: u64 = 1 << 9;
 const CR4_OSXMMEXCPT: u64 = 1 << 10;
 const CR4_OSXSAVE: u64 = 1 << 18;
 
-
 fn rdcr0() -> u64 {
     let mut v: u64;
     unsafe { core::arch::asm!("mov {}, cr0", out(reg) v) }

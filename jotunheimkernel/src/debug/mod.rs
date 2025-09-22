@@ -20,7 +20,6 @@ pub enum Outcome {
 static ACTIVE: Mutex<bool> = Mutex::new(false);
 pub(crate) static BKPT: Mutex<Option<(u64, u8)>> = Mutex::new(None);
 
-
 pub fn clear_tf(tf: &mut TrapFrame) {
     tf.rflags &= !(1 << 8);
 }

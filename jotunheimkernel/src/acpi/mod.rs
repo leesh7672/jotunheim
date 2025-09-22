@@ -3,13 +3,13 @@
 use alloc::{boxed::Box, vec::Vec};
 
 // src/acpi/mod.rs
-pub mod madt;
 pub mod cpuid;
+pub mod madt;
 
 #[derive(Debug, Copy, Clone)]
 pub struct CpuEntry {
-    pub apic_id: u32,    // LAPIC ID (8-bit for xAPIC, 32-bit for x2APIC)
-    pub enabled: bool,   // ACPI “enabled” flag
+    pub apic_id: u32,     // LAPIC ID (8-bit for xAPIC, 32-bit for x2APIC)
+    pub enabled: bool,    // ACPI “enabled” flag
     pub _is_x2apic: bool, // true if came from x2APIC (type 9) entry
 }
 

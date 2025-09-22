@@ -7,7 +7,6 @@ use spin::Mutex;
 
 use crate::arch::x86_64::tables::access_mut;
 use crate::arch::x86_64::tables::gdt::Selectors;
-use crate::kprint;
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};

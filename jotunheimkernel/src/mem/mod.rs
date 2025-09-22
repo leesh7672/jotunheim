@@ -4,7 +4,7 @@ pub mod reserved;
 pub mod simple_alloc;
 
 extern crate alloc;
-use core::sync::atomic::{fence, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, Ordering, fence};
 use core::{
     alloc::{GlobalAlloc, Layout},
     sync::atomic::AtomicBool,
@@ -16,11 +16,11 @@ use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::registers::control::Cr0Flags;
 use x86_64::structures::paging::{PageTableFlags as F, Translate};
 use x86_64::{
+    PhysAddr, VirtAddr,
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags,
         PhysFrame, Size4KiB,
     },
-    PhysAddr, VirtAddr,
 };
 
 static PT_LOCK: Mutex<()> = Mutex::new(());
@@ -113,7 +113,7 @@ fn map_4k(
     fa: &mut impl FrameAllocator<Size4KiB>,
 ) {
     pt_locked(|| {
-        use x86_64::{structures::paging::*, PhysAddr, VirtAddr};
+        use x86_64::{PhysAddr, VirtAddr, structures::paging::*};
         let pa_aligned = (pa_mask_52(pa)) & !0xFFF;
         let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(pa_aligned));
         let page = Page::<Size4KiB>::containing_address(VirtAddr::new(va));
@@ -260,16 +260,18 @@ unsafe impl<'a> FrameAllocator<Size4KiB> for TinyAllocGuard<'a> {
     }
 }
 
-struct MutexHeap{
-    inner: Mutex<PagingHeap>
+struct MutexHeap {
+    inner: Mutex<PagingHeap>,
 }
 
 impl MutexHeap {
-    fn init(&self, start: *mut u8, size: usize){
+    fn init(&self, start: *mut u8, size: usize) {
         unsafe { self.inner.lock().init(start, size) };
     }
-    const fn new() -> Self{
-        Self{inner: Mutex::new(PagingHeap::empty())}
+    const fn new() -> Self {
+        Self {
+            inner: Mutex::new(PagingHeap::empty()),
+        }
     }
 }
 
@@ -279,15 +281,15 @@ unsafe impl GlobalAlloc for MutexHeap {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        unsafe {self.inner.lock().realloc(ptr, layout, new_size)}
+        unsafe { self.inner.lock().realloc(ptr, layout, new_size) }
     }
-    
+
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe {self.inner.lock().alloc(layout)}
+        unsafe { self.inner.lock().alloc(layout) }
     }
-    
+
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe {self.inner.lock().dealloc(ptr, layout)}
+        unsafe { self.inner.lock().dealloc(ptr, layout) }
     }
 }
 

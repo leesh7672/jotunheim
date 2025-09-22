@@ -10,14 +10,13 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use spin::mutex::Mutex;
-use x86_64::instructions::interrupts::{self, without_interrupts};
+use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
 use crate::arch::x86_64::tables::gdt::load_temp_gdt;
 use crate::arch::x86_64::tables::idt::load_bsp_idt;
 use crate::kprintln;
-use crate::sched::spawn;
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
