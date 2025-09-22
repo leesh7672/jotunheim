@@ -14,7 +14,11 @@ mod util;
 extern crate alloc;
 
 use crate::{
-    arch::native::smp::boot_all_aps, bootinfo::BootInfo, mem::reserved, sched::{exec, yield_now}, util::zero_bss,
+    arch::native::smp::boot_all_aps,
+    bootinfo::BootInfo,
+    mem::reserved,
+    sched::{exec, yield_now},
+    util::zero_bss,
 };
 
 use core::panic::PanicInfo;
@@ -43,9 +47,9 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         mmio_map::enforce_apic_mmio_flags();
         native::init(&boot);
         sched::init();
+        exec::init();
         sched::spawn(|| {
             kprintln!("[JOTUNHEIM] Started the kernel main thread.");
-            exec::init();
             boot_all_aps(boot);
             kprintln!("[JOTUNHEIM] Ended the kernel main thread.");
         });

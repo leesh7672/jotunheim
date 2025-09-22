@@ -108,7 +108,7 @@ fn server_main() -> ! {
                 slot.invoke_and_forget();
             });
         }
-        for _ in 0..1_000 {
+        for _ in 0..1_00 {
             sched::yield_now();
         }
     }

@@ -143,7 +143,6 @@ pub fn init() {
         );
     });
     spawn(|| loop {
-        kprintln!("X");
         for _ in 0..1000 {
             yield_now();
         }
@@ -254,11 +253,11 @@ pub fn yield_now() {
             }
         }
         rq.tasks[next].as_mut().state = TaskState::Running;
+        rq.need_resched = false;
         Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
     }) else {
         return;
     };
-
     save(prev.simd.as_mut_ptr());
     restore(next.simd.as_mut_ptr());
     switch(&mut prev.ctx, &mut next.ctx);
