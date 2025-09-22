@@ -14,6 +14,7 @@ use x86_64::instructions::interrupts::{self, without_interrupts};
 
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
+use crate::arch::x86_64::tables::gdt::load_temp_gdt;
 use crate::arch::x86_64::tables::idt::load_bsp_idt;
 use crate::kprintln;
 use crate::sched::spawn;
@@ -131,27 +132,20 @@ pub fn access_mut<F>(mut func: F)
 where
     F: FnMut(&mut ISR) -> (),
 {
-    without_interrupts(|| {
-        let mut guard = IST.lock();
-        let iter = guard.as_mut().unwrap().iter_mut();
-        for e in iter {
-            func(e);
-        }
-        drop(guard);
-    })
+    let mut guard = IST.lock();
+    let iter = guard.as_mut().unwrap().iter_mut();
+    for e in iter {
+        func(e);
+    }
 }
 
 pub fn ap_init() {
-    load_bsp_idt(|| {
+    load_temp_gdt(|| {
         load_bsp_idt(|| {
             let id = CpuId::me();
-            kprintln!("A");
             registrate(id);
-            kprintln!("B");
             let gdt = gdt::generate(id);
-            kprintln!("C");
             idt::ap_init(gdt::load_inner(gdt));
-            kprintln!("D");
         })
     })
 }

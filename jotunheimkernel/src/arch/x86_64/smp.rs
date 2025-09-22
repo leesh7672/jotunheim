@@ -193,20 +193,6 @@ pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
         apboot.ready_flag = 1;
         tables::ap_init();
         kprintln!("Loaded GDT and IDT");
-        let mut stk_va = 0;
-        let mut stk_top = 0;
-        access_mut(|e| {
-            if !matches!(e.stub, None) {
-                if !matches!(e.vector, None) {
-                    if let Some(stack) = &e.stack {
-                        let me = CpuId::me();
-                        stk_va = &raw const stack.me(me).unwrap().dump[0] as u64;
-                        stk_top = (stk_va + stack.me(me).unwrap().dump.len() as u64 - 0x10)
-                            & !0xF;
-                    }
-                }
-            }
-        });
     });
 
     loop {
