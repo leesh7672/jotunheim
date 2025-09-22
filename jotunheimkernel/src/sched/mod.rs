@@ -16,7 +16,6 @@ extern crate alloc;
 
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -145,9 +144,6 @@ pub fn init() {
     });
     spawn(|| {
         loop {
-            for _ in 0..100 {
-                yield_now();
-            }
             with_rq_locked(|rq| {
                 let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
                 let mut deads = Vec::<u64>::new();
@@ -168,6 +164,9 @@ pub fn init() {
                     tasks.remove(i);
                 }
             });
+            for _ in 0..100 {
+                yield_now();
+            }
         }
     });
 }
@@ -268,7 +267,7 @@ pub fn yield_now() {
 }
 
 pub fn tick() {
-    with_rq_locked(|rq| {
+    let Some((mut prev, mut next)) = with_rq_locked(|rq| {
         let current = rq.current;
         {
             let t = rq.tasks[current].as_mut();
@@ -297,13 +296,13 @@ pub fn tick() {
         }
 
         if !(rq.need_resched || (cur_is_idle && some_ready)) {
-            return;
+            return None;
         } else {
             let next;
             {
                 let picked = rq.pick_next();
                 if picked.is_none() {
-                    return;
+                    return None;
                 } else {
                     next = picked.unwrap();
                 }
@@ -316,13 +315,16 @@ pub fn tick() {
                 }
             }
             rq.tasks[next].as_mut().state = TaskState::Running;
-            save(rq.tasks[current].simd.as_mut_ptr());
-            restore(rq.tasks[next].simd.as_mut_ptr());
-            switch(&mut rq.tasks[current].ctx, &mut rq.tasks[next].ctx);
-            save(rq.tasks[next].simd.as_mut_ptr());
-            restore(rq.tasks[current].simd.as_mut_ptr());
+            Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
         }
-    });
+    }) else {
+        return;
+    };
+    save(prev.simd.as_mut_ptr());
+    restore(next.simd.as_mut_ptr());
+    switch(&mut prev.ctx, &mut next.ctx);
+    save(next.simd.as_mut_ptr());
+    restore(prev.simd.as_mut_ptr());
 }
 /* ------------------------------ Core switching ------------------------------- */
 
