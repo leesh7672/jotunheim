@@ -227,6 +227,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
                 _stack: stack,
             }),
         );
+        rq.current += 1;
         id
     })
 }
@@ -253,8 +254,8 @@ pub fn yield_now() {
             }
             {
                 let t = rq.tasks[current].as_mut();
+                t.state = TaskState::Ready;
                 if t.time_slice != u32::MAX {
-                    t.state = TaskState::Ready;
                     t.time_slice = DEFAULT_SLICE;
                 }
             }
@@ -313,20 +314,18 @@ pub fn tick() {
                     next = picked.unwrap();
                 }
             }
-            {
-                if next == current {
-                    rq.need_resched = false;
-                    let t = rq.tasks[current].as_mut();
-                    if t.state == TaskState::Running {
-                        return None;
-                    }
+            if next == current {
+                rq.need_resched = false;
+                let t = rq.tasks[current].as_mut();
+                if t.state == TaskState::Running {
+                    return None;
                 }
-                {
-                    let t = rq.tasks[current].as_mut();
-                    if t.time_slice != u32::MAX {
-                        t.state = TaskState::Ready;
-                        t.time_slice = DEFAULT_SLICE;
-                    }
+            }
+            {
+                let t = rq.tasks[current].as_mut();
+                t.state = TaskState::Ready;
+                if t.time_slice != u32::MAX {
+                    t.time_slice = DEFAULT_SLICE;
                 }
             }
             rq.tasks[next].as_mut().state = TaskState::Running;
@@ -335,7 +334,6 @@ pub fn tick() {
     }) else {
         return;
     };
-
     save(prev.simd.as_mut_ptr());
     restore(next.simd.as_mut_ptr());
     switch(&mut prev.ctx, &mut next.ctx);

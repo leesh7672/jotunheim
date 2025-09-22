@@ -43,8 +43,8 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         mmio_map::enforce_apic_mmio_flags();
         native::init(&boot);
         sched::init();
-        exec::init();
         sched::spawn(|| {
+            exec::init();
             kprintln!("[JOTUNHEIM] Started the kernel main thread.");
             boot_all_aps(boot);
             kprintln!("[JOTUNHEIM] Ended the kernel main thread.");
