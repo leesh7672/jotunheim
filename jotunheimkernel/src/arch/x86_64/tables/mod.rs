@@ -14,9 +14,10 @@ use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
-use crate::arch::x86_64::tables::gdt::load_temp_gdt;
+use crate::arch::x86_64::tables::gdt::{load_temp_gdt, GdtLoader};
 use crate::arch::x86_64::tables::idt::load_bsp_idt;
 use crate::kprintln;
+use crate::sched::exec;
 
 static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
@@ -143,11 +144,18 @@ where
 
 pub fn ap_init() {
     load_temp_gdt(|| {
-        load_bsp_idt(|| {
+        load_bsp_idt(|| unsafe {
             let id = CpuId::me();
-            registrate(id);
-            let gdt = gdt::generate(id);
-            idt::ap_init(gdt::load_inner(gdt));
+            let mut gdt: Option<GdtLoader> = None;
+            let addr = &raw mut gdt as usize;
+            exec::submit(move || unsafe {
+                registrate(id);
+                let gdt: &mut Option<GdtLoader> = &mut *(addr as *mut Option<GdtLoader>);
+                *gdt = Some(gdt::generate(id));
+            })
+            .unwrap();
+            while gdt.is_none() {}
+            idt::ap_init(gdt::load_inner(gdt.unwrap()));
         })
     })
 }

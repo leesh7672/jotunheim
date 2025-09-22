@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 pub mod sched_simd;
+pub mod exec;
 
 use core::u32;
 

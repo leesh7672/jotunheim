@@ -138,3 +138,6 @@ pub(super) fn load_inner(gdtinfo: GdtLoader) -> Selectors {
         sels
     }
 }
+
+unsafe impl Send for GdtLoader {}
+unsafe impl Sync for GdtLoader {}
