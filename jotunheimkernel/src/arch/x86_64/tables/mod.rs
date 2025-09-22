@@ -88,7 +88,7 @@ impl ISR {
     ) {
         without_interrupts(move || {
             loop {
-                let mut guard = IST.lock();
+                let mut guard = TABLES.lock();
                 match guard.clone() {
                     Some(_) => {
                         guard.as_mut().unwrap().insert(
@@ -112,11 +112,13 @@ impl ISR {
     }
 }
 
-static IST: Mutex<Option<Box<Vec<Box<ISR>>>>> = Mutex::new(None);
+static TABLES: Mutex<Option<Box<Vec<Box<ISR>>>>> = Mutex::new(None);
 
 pub fn init() {
-    let mut guard = IST.lock();
-    *guard = Some(Box::new(Vec::new()));
+    let mut guard = TABLES.lock();
+    if guard.is_none() {
+        *guard = Some(Box::new(Vec::new()));
+    }
 }
 
 pub fn registrate(cpu: CpuId) {
@@ -131,7 +133,8 @@ pub fn access_mut<F>(mut func: F)
 where
     F: FnMut(&mut ISR) -> (),
 {
-    let mut guard = IST.lock();
+    init();
+    let mut guard = TABLES.lock();
     let iter = guard.as_mut().unwrap().iter_mut();
     for e in iter {
         func(e);
