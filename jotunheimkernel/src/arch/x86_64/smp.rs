@@ -6,7 +6,7 @@
 extern crate alloc;
 
 use core::{
-    arch::{self, asm},
+    arch::asm,
     ptr,
     sync::atomic::{Ordering, compiler_fence},
 };
