@@ -120,6 +120,6 @@ unsafe extern "C" {
 }
 pub fn init() {
     ISR::registrate(0x0D, isr_gp_stub);
-    ISR::registrate_without_stack(0x0E, isr_pf_stub);
-    ISR::registrate(0x08, isr_df_stub);
+    ISR::registrate(0x0E, isr_pf_stub);
+    ISR::registrate_without_stack(0x08, isr_df_stub);
 }
