@@ -10,21 +10,18 @@ use core::{
     sync::atomic::{Ordering, compiler_fence},
 };
 
-use alloc::boxed::Box;
-use x86_64::{
-    instructions::{hlt, interrupts::without_interrupts}, structures::gdt::GlobalDescriptorTable,
-};
+use x86_64::instructions::{hlt, interrupts::without_interrupts};
 
 use crate::{
     acpi::{cpuid::CpuId, madt},
     arch::x86_64::{
         apic::{self, lapic_id},
         tables::{
-            self, access, gdt::{self, Selectors}, idt
+            self, access_mut
         },
     },
     bootinfo::BootInfo,
-    kprintln, mem, sched,
+    kprintln, mem,
 };
 
 use crate::arch::x86_64::ap_trampoline;
@@ -55,20 +52,6 @@ pub fn boot_all_aps(boot: &BootInfo) {
         kprintln!("[SMP] No MADT; cannot boot APs.");
         return;
     };
-
-    // Initialize fault logging for SMP: determine CPU count and install a CPU
-    // index function that returns the current APIC ID. This preserves any
-    // records captured before SMP init.
-    {
-        let cpu_count = m.cpus.iter().filter(|c| c.enabled).count();
-        fn cpu_index_from_lapic() -> usize {
-            // Use the LAPIC ID as the CPU index. This works because APIC IDs
-            // are unique. If APIC IDs are sparse, adapt this function to map
-            // IDs to contiguous indices.
-            lapic_id() as usize
-        }
-        unsafe { crate::faultsvc::init_smp(core::cmp::max(cpu_count, 1), cpu_index_from_lapic) };
-    }
 
     // --- 1) Trampoline: copy once to low physical page (e.g., 0x8000) ---
     const TRAMP_PHYS: u64 = 0x1000; // 32KiB, <1MiB, 4KiB aligned
@@ -205,25 +188,11 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
     without_interrupts(|| {
         let boot: ApBoot = *apboot;
-        apic::ap_init(unsafe { HHDM_BASE });
         apboot.ready_flag = 1;
+        apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", lapic_id());
         tables::ap_init();
         kprintln!("Loaded GDT and IDT");
-        let mut stk_va = 0;
-        let mut stk_top = 0;
-        access(|e| {
-            if !matches!(e.stub, None) {
-                if !matches!(e.vector, None) {
-                    if let Some(stack) = &e.stack {
-                        let me = CpuId::me();
-                        stk_va = &raw const stack.me(me).unwrap().dump[0] as u64;
-                        stk_top = (stk_va + stack.me(me).unwrap().dump.len() as u64 - 0x10)
-                            & !0xF;
-                    }
-                }
-            }
-        });
     });
 
     loop {

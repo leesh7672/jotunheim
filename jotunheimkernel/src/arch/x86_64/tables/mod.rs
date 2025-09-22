@@ -14,6 +14,7 @@ use x86_64::instructions::interrupts::{self, without_interrupts};
 
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
+use crate::arch::x86_64::tables::gdt::load_temp_gdt;
 use crate::arch::x86_64::tables::idt::load_bsp_idt;
 use crate::kprintln;
 use crate::sched::spawn;
@@ -120,43 +121,31 @@ pub fn init() {
 }
 
 pub fn registrate(cpu: CpuId) {
-    access(|e| {
+    access_mut(|e| {
         if let Some(stack) = e.stack.as_mut() {
             stack.registrate(cpu);
         }
     });
 }
 
-pub fn access<F>(mut func: F)
+pub fn access_mut<F>(mut func: F)
 where
     F: FnMut(&mut ISR) -> (),
 {
     let mut guard = IST.lock();
-    for e in guard.as_mut().unwrap().iter_mut() {
-        func(e.as_mut());
+    let iter = guard.as_mut().unwrap().iter_mut();
+    for e in iter {
+        func(e);
     }
 }
 
 pub fn ap_init() {
-    load_bsp_idt(|| {
+    load_temp_gdt(|| {
         load_bsp_idt(|| {
             let id = CpuId::me();
-            let mut gdt = None;
-
-            spawn(|| {
-                registrate(id);
-                gdt = Some(gdt::generate(id));
-            });
-            loop {
-                if gdt.is_none() {
-                    continue;
-                } else {
-                    kprintln!("D");
-                    idt::ap_init(gdt::load_inner(gdt.unwrap()));
-                    kprintln!("E");
-                    break;
-                }
-            }
+            registrate(id);
+            let gdt = gdt::generate(id);
+            idt::ap_init(gdt::load_inner(gdt));
         })
     })
 }

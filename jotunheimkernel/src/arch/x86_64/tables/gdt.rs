@@ -6,12 +6,16 @@ use alloc::boxed::Box;
 
 use spin::Mutex;
 use x86_64::{
+    VirtAddr,
     instructions::{
-        interrupts, segmentation::{Segment, CS, DS, ES, SS}, tables::load_tss
-    }, structures::{
+        interrupts,
+        segmentation::{CS, DS, ES, SS, Segment},
+        tables::load_tss,
+    },
+    structures::{
         gdt::{self, Descriptor, GlobalDescriptorTable, SegmentSelector},
         tss::TaskStateSegment,
-    }, VirtAddr
+    },
 };
 
 use crate::{
@@ -59,7 +63,7 @@ fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors 
         let mut t = TaskStateSegment::new();
         let mut i = 0;
         let mut p = 0;
-        super::access(|isr| {
+        super::access_mut(|isr| {
             if let Some(stack) = &isr.stack {
                 let stack = stack.me(cpu).unwrap();
                 if let (Some(_), Some(_)) = (isr.vector, isr.stub) {
@@ -88,8 +92,8 @@ fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors 
     }
 }
 
-static BSP_GDT: Mutex<Option<GlobalDescriptorTable>> = Mutex::new(None);
-static BSP_SEL: Mutex<Option<Selectors>> = Mutex::new(None);
+static TEMP_GDT: Mutex<Option<GlobalDescriptorTable>> = Mutex::new(None);
+static TEMP_SEL: Mutex<Option<Selectors>> = Mutex::new(None);
 
 /// Build + load GDT/TSS once; return selectors.
 pub fn init() -> Selectors {
@@ -97,9 +101,9 @@ pub fn init() -> Selectors {
     registrate(CpuId::dummy());
     let mut gdt = GlobalDescriptorTable::new();
     let sel = Some(generate_inner(CpuId::dummy(), &mut gdt));
-    *BSP_SEL.lock() = sel;
-    *BSP_GDT.lock() = Some(gdt);
-    load_bsp_gdt(|| {
+    *TEMP_SEL.lock() = sel;
+    *TEMP_GDT.lock() = Some(gdt);
+    load_temp_gdt(|| {
         idt::init(sel.unwrap());
         registrate(CpuId::me());
         let gdtinfo = generate(CpuId::me());
@@ -107,13 +111,13 @@ pub fn init() -> Selectors {
     })
 }
 
-fn load_bsp_gdt<R, F>(func: F) -> R
+pub fn load_temp_gdt<R, F>(func: F) -> R
 where
     F: FnOnce() -> R,
 {
     unsafe {
-        let g = BSP_GDT.lock();
-        let gsels = BSP_SEL.lock().unwrap();
+        let g = TEMP_GDT.lock();
+        let gsels = TEMP_SEL.lock().unwrap();
         let x = g.clone().unwrap();
         x.load_unsafe();
         CS::set_reg(gsels.code);

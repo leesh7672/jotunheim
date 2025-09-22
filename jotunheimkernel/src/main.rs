@@ -7,7 +7,6 @@ mod acpi;
 mod arch;
 mod bootinfo;
 mod debug;
-mod faultsvc;
 mod mem;
 mod sched;
 mod util;
@@ -43,9 +42,9 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
         native::init(&boot);
         sched::init();
         sched::spawn(|| {
-            kprintln!("[JOTUNHEIM] Started the kernel.");
+            kprintln!("[JOTUNHEIM] Started the kernel main thread.");
             boot_all_aps(boot);
-            kprintln!("[JOTUNHEIM] Ended the main thread.");
+            kprintln!("[JOTUNHEIM] Ended the kernel main thread.");
         });
         debug::setup();
     });
