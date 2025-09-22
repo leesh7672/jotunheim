@@ -85,7 +85,7 @@ struct ThreadStack {
 
 impl ThreadStack {
     fn new() -> Self {
-        const STACK_SIZE: usize = 0x4_0000;
+        const STACK_SIZE: usize = 0x8_0000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         ThreadStack { dump }
     }
@@ -125,8 +125,7 @@ pub fn init() {
                 id,
                 state: TaskState::Ready,
                 ctx: CpuContext {
-                    // zero GPRs you don’t care about; set the essentials:
-                    rip: kthread_trampoline as u64, // <- trampoline first
+                    rip: kthread_trampoline as u64,
                     rsp: frame as u64,
                     rflags: 0x202,
                     ..CpuContext::default()
@@ -199,8 +198,8 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let mut stack = Box::new(ThreadStack::new());
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
-    let top_aligned = ((stack_ptr as usize) & !0xF) as u64; // 16-align
-    let frame = (top_aligned - 16) as *mut u64; // space for [arg][entry]
+    let top_aligned = ((stack_ptr as usize) & !0xF) as u64;
+    let frame = (top_aligned - 16) as *mut u64;
     unsafe {
         core::ptr::write(frame.add(0), arg as u64);
         core::ptr::write(frame.add(1), entry as u64);
