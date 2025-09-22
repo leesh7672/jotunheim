@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
-pub mod sched_simd;
 pub mod exec;
+pub mod sched_simd;
 
 use core::u32;
 
@@ -162,8 +162,8 @@ pub fn init() {
                     tasks.remove(i);
                 }
             });
-            for _ in 0..1000 {
-                hlt();
+            for _ in 0..100 {
+                yield_now();
             }
         }
     });
@@ -229,6 +229,47 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         );
         id
     })
+}
+
+pub fn yield_now() {
+    let Some((mut prev, mut next)) = with_rq_locked(|rq| {
+        let current = rq.current;
+        let next;
+        {
+            let picked = rq.pick_next();
+            if picked.is_none() {
+                return None;
+            } else {
+                next = picked.unwrap();
+            }
+        }
+        {
+            if next == current {
+                rq.need_resched = false;
+                let t = rq.tasks[current].as_mut();
+                if t.state == TaskState::Running {
+                    return None;
+                }
+            }
+            {
+                let t = rq.tasks[current].as_mut();
+                if t.time_slice != u32::MAX {
+                    t.state = TaskState::Ready;
+                    t.time_slice = DEFAULT_SLICE;
+                }
+            }
+        }
+        rq.tasks[next].as_mut().state = TaskState::Running;
+        Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
+    }) else {
+        return;
+    };
+
+    save(prev.simd.as_mut_ptr());
+    restore(next.simd.as_mut_ptr());
+    switch(&mut prev.ctx, &mut next.ctx);
+    save(next.simd.as_mut_ptr());
+    restore(prev.simd.as_mut_ptr());
 }
 
 pub fn tick() {
@@ -298,6 +339,8 @@ pub fn tick() {
     save(prev.simd.as_mut_ptr());
     restore(next.simd.as_mut_ptr());
     switch(&mut prev.ctx, &mut next.ctx);
+    save(next.simd.as_mut_ptr());
+    restore(prev.simd.as_mut_ptr());
 }
 /* ------------------------------ Core switching ------------------------------- */
 

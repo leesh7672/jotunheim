@@ -6,6 +6,8 @@ use heapless::Deque;
 use spin::{Mutex, Once};
 use x86_64::instructions::hlt;
 
+use crate::{kprintln, sched};
+
 // Tune as needed
 const QUEUE_CAPACITY: usize = 64; // max pending closures (early AP)
 const SLOT_SIZE: usize = 128; // max capture size (bytes) for early-boot closures
@@ -107,7 +109,8 @@ fn server_main() -> ! {
                 slot.invoke_and_forget();
             });
         }
-        // Timer-driven scheduler will wake us soon.
-        hlt();
+        for _ in 0..100 {
+            sched::yield_now();
+        }
     }
 }
