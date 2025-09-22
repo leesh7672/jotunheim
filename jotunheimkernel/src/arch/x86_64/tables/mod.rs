@@ -151,7 +151,9 @@ pub fn ap_init() {
                 if gdt.is_none() {
                     continue;
                 } else {
+                    kprintln!("D");
                     idt::ap_init(gdt::load_inner(gdt.unwrap()));
+                    kprintln!("E");
                     break;
                 }
             }
