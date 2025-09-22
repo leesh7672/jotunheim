@@ -144,11 +144,12 @@ where
 
 pub fn ap_init() {
     load_temp_gdt(|| {
-        load_bsp_idt(|| unsafe {
+        load_bsp_idt(|| {
             let id = CpuId::me();
             let mut gdt: Option<GdtLoader> = None;
             let addr = &raw mut gdt as usize;
             exec::submit(move || unsafe {
+                kprintln!("A");
                 registrate(id);
                 let gdt: &mut Option<GdtLoader> = &mut *(addr as *mut Option<GdtLoader>);
                 *gdt = Some(gdt::generate(id));

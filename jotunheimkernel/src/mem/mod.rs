@@ -277,19 +277,19 @@ impl MutexHeap {
 
 unsafe impl GlobalAlloc for MutexHeap {
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        unsafe { self.inner.lock().alloc_zeroed(layout) }
+        without_interrupts(|| unsafe { self.inner.lock().alloc_zeroed(layout) })
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        unsafe { self.inner.lock().realloc(ptr, layout, new_size) }
+        without_interrupts(|| unsafe { self.inner.lock().realloc(ptr, layout, new_size) })
     }
 
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe { self.inner.lock().alloc(layout) }
+        without_interrupts(|| unsafe { self.inner.lock().alloc(layout) })
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { self.inner.lock().dealloc(ptr, layout) }
+        without_interrupts(|| unsafe { self.inner.lock().dealloc(ptr, layout) })
     }
 }
 
