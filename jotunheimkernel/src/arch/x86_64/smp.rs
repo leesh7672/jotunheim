@@ -188,9 +188,9 @@ fn wait_ready(flag_ptr: *const u32, max_spins: u64) -> bool {
 pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
     without_interrupts(|| {
         let boot: ApBoot = *apboot;
+        apboot.ready_flag = 1;
         apic::ap_init(unsafe { HHDM_BASE });
         kprintln!("Hello from {}", lapic_id());
-        apboot.ready_flag = 1;
         tables::ap_init();
         kprintln!("Loaded GDT and IDT");
     });
