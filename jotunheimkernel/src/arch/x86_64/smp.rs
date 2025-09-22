@@ -113,7 +113,7 @@ pub fn boot_all_aps(boot: &BootInfo) {
         }
 
         // (b) Per-AP stack: 32 KiB VMAP (guaranteed mapped)
-        const AP_STACK_PAGES: usize = 128; // 8 * 4KiB = 32KiB
+        const AP_STACK_PAGES: usize = 8; // 8 * 4KiB = 32KiB
         let stk =
             crate::mem::vmap_alloc_pages(AP_STACK_PAGES).expect("[SMP] vmap stack alloc failed");
         let stk_va = stk as u64;
@@ -187,7 +187,7 @@ pub extern "C" fn ap_entry(apboot: &mut ApBoot) -> ! {
     without_interrupts(|| {
         let boot: ApBoot = *apboot;
         apboot.ready_flag = 1;
-        apic::ap_init(unsafe { HHDM_BASE });
+        apic::ap_init(boot.hhdm);
         kprintln!("Hello from {}", lapic_id());
         tables::ap_init();
         kprintln!("Loaded GDT and IDT");
