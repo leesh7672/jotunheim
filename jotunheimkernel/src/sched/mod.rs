@@ -140,6 +140,7 @@ pub fn init() {
                     rsp: frame as u64,
                     cs: kernel_cs() as u64,
                     rflags: 0x202,
+                    ss: 0,
                     ..TrapFrame::default()
                 },
                 time_slice: DEFAULT_SLICE,
@@ -222,6 +223,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
             rsp: frame as u64,
             cs: kernel_cs() as u64,
             rflags: 0x202,
+            ss: 0,
             ..TrapFrame::default()
         },
         time_slice: DEFAULT_SLICE,
