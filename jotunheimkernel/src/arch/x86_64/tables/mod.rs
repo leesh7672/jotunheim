@@ -16,6 +16,7 @@ use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
 use crate::arch::x86_64::tables::gdt::{load_temp_gdt, GdtLoader};
 use crate::arch::x86_64::tables::idt::load_bsp_idt;
+use crate::debug::TrapFrame;
 use crate::kprintln;
 use crate::sched::exec;
 
@@ -23,10 +24,7 @@ static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
 
 // ---------- Rust ISR targets that NASM stubs call ----------
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_default_rust(vec: u64, err: u64) {
-    if !THROTTLED_ONCE.swap(true, Ordering::Relaxed) {
-        kprintln!("[INT] default vec={:#04x} err={:#018x}", vec, err);
-    }
+pub extern "C" fn isr_default_rust(_tf: &mut TrapFrame) {
     apic::eoi();
 }
 

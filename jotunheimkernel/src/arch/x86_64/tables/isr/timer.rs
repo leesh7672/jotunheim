@@ -12,7 +12,6 @@ pub extern "C" fn isr_timer_rust(tf: &mut TrapFrame) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_spurious_rust() {
-    apic::eoi()
 }
 
 unsafe extern "C" {
