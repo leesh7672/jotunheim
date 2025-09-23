@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 
-use crate::kprintln;
-
 #[derive(Copy, Clone, Default, Debug)]
 #[repr(C)]
 pub struct TrapFrame {
@@ -31,29 +29,3 @@ pub struct TrapFrame {
     pub ss: u64,
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-#[repr(C)]
-pub struct CpuContext {
-    pub r15: u64,
-    pub r14: u64,
-    pub r13: u64,
-    pub r12: u64,
-    pub rbx: u64,
-    pub rbp: u64,
-    pub rsp: u64,
-    pub rip: u64,
-    pub rflags: u64,
-}
-
-unsafe extern "C" {
-    unsafe fn __ctx_switch(prev: *mut CpuContext, next: *const CpuContext);
-    unsafe fn __first_switch(next: *const CpuContext) -> !;
-}
-
-pub fn switch(prev: *mut CpuContext, next: *const CpuContext) {
-    unsafe { __ctx_switch(prev, next) }
-}
-
-pub fn first_switch(next: *const CpuContext) {
-    unsafe { __first_switch(next) }
-}

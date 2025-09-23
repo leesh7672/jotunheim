@@ -50,7 +50,6 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
             kprintln!("[JOTUNHEIM] Ended the kernel main thread.");
         });
         debug::setup();
-        sched::enter()
     });
     interrupts::enable();
     loop {

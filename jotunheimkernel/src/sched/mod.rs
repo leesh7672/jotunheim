@@ -15,9 +15,7 @@ use x86_64::instructions::{hlt, interrupts};
 
 extern crate alloc;
 
-use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
-use crate::arch::x86_64::context::first_switch;
 use crate::debug::TrapFrame;
 use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
@@ -141,7 +139,7 @@ pub fn init() {
                 trap: TrapFrame {
                     rip: kthread_trampoline as u64,
                     rsp: frame as u64,
-                    rflags: 0x202,
+                    rflags: 0,
                     ..TrapFrame::default()
                 },
                 time_slice: DEFAULT_SLICE,
@@ -196,13 +194,6 @@ where
 
 /* ------------------------------- Public API ---------------------------------- */
 
-pub fn enter() {
-    with_rq_locked(|rq| {
-        rq.current = None;
-        interrupts::enable();
-    })
-}
-
 pub fn spawn<F>(func: F)
 where
     F: FnOnce() -> (),
@@ -229,7 +220,6 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         trap: TrapFrame {
             rip: kthread_trampoline as u64,
             rsp: frame as u64,
-            rflags: 0x202,
             ..TrapFrame::default()
         },
         time_slice: DEFAULT_SLICE,
@@ -251,7 +241,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
 
 pub fn yield_now() {}
 
-pub fn tick(mut tf: TrapFrame) -> TrapFrame {
+pub fn tick(tf: TrapFrame) -> TrapFrame {
     let Some(ntf) = with_rq_locked(|rq| {
         let extra: bool;
         if let Some(current) = rq.current {
