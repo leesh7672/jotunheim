@@ -180,17 +180,13 @@ extern isr_spurious_rust       ; fn() -> ()
 
 ; Write back possibly-updated RIP/CS/RFLAGS into HW frame at r12
 %macro WRITE_BACK_HW 0
-    mov     r12, [rsp + TF_RSP]          ; target HW frame base (&RIP)
-
-    ; read candidate frame early (will fault here if TF_RSP invalid)
-    mov     rax, [r12 + 0]               ; new RIP
-    mov     rdx, [r12 + 8]               ; new CS
-    mov     rcx, [r12 + 16]              ; new RFLAGS
-
-    ; store sanitized trio
-    mov     [r12 + 0], rax
-    mov     [r12 + 8], rdx
-    mov     [r12 + 16], rcx
+    mov     r12, [rsp + TF_RSP]  
+    mov     rax, [rsp + TF_RIP]
+    mov     [r12 + 0],  rax
+    mov     rax, [rsp + TF_CS]
+    mov     [r12 + 8],  rax
+    mov     rax, [rsp + TF_RFLAGS]
+    mov     [r12 + 16], rax
 %endmacro
 
 ; =============================================================================

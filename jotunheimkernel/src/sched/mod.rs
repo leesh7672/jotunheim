@@ -3,6 +3,7 @@
 pub mod exec;
 pub mod sched_simd;
 
+use core::array::from_mut;
 use core::u32;
 
 use alloc::boxed::Box;
@@ -17,6 +18,7 @@ extern crate alloc;
 use crate::arch::native::simd::{restore, save};
 use crate::arch::x86_64::tables::gdt::{kernel_cs, kernel_ds};
 use crate::debug::TrapFrame;
+use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -118,15 +120,7 @@ pub fn init() {
     let mut stack = Box::new(ThreadStack::new());
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
-    let top_aligned = ((stack_ptr as usize) & !0xF) as u64; // 16-align
-    let frame = top_aligned - 0x28;
-    unsafe {
-        core::ptr::write((frame + 0x00) as *mut u64, kthread_trampoline as u64);
-        core::ptr::write((frame + 0x08) as *mut u64, kernel_cs() as u64);
-        core::ptr::write((frame + 0x10) as *mut u64, 0x202);
-        core::ptr::write((frame + 0x18) as *mut u64, 0u64);
-        core::ptr::write((frame + 0x20) as *mut u64, idle_main as u64);
-    }
+    let top = ((stack_ptr as usize) & !0xF) as u64;
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
@@ -140,13 +134,14 @@ pub fn init() {
                 },
                 tf: TrapFrame {
                     rip: kthread_trampoline as u64,
-                    rsp: (frame + 0x18) as u64,
+                    rsp: top - 0x80,
                     cs: kernel_cs() as u64,
+                    rax: idle_main as u64,
                     rflags: 0x202,
                     ss: kernel_ds() as u64,
                     ..TrapFrame::default()
                 },
-                time_slice: DEFAULT_SLICE,
+                time_slice: u32::MAX,
                 _stack: stack,
             }),
         );
@@ -210,15 +205,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let mut stack = Box::new(ThreadStack::new());
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
-    let top_aligned = ((stack_ptr as usize) & !0xF) as u64;
-    let frame = top_aligned;
-    unsafe {
-        core::ptr::write((frame + 0x00) as *mut u64, kthread_trampoline as u64);
-        core::ptr::write((frame + 0x08) as *mut u64, kernel_cs() as u64);
-        core::ptr::write((frame + 0x10) as *mut u64, 0x202);
-        core::ptr::write((frame + 0x18) as *mut u64, arg as u64);
-        core::ptr::write((frame + 0x20) as *mut u64, entry as u64);
-    }
+    let top = ((stack_ptr as usize) & !0xF) as u64;
     let mut element = Box::new(Task {
         state: TaskState::Ready,
         simd: SimdArea {
@@ -226,8 +213,10 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         },
         tf: TrapFrame {
             rip: kthread_trampoline as u64,
-            rsp: (frame + 0x18) as u64,
+            rsp: top - 0x80,
             cs: kernel_cs() as u64,
+            rax: entry as u64,
+            rdi: arg as u64,
             rflags: 0x202,
             ss: kernel_ds() as u64,
             ..TrapFrame::default()

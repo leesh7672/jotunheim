@@ -55,7 +55,7 @@ impl Stack {
 
 impl CpuStack {
     pub fn new(cpu: CpuId) -> Self {
-        const STACK_SIZE: usize = 0x2_0000;
+        const STACK_SIZE: usize = 0x4_0000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         Self { dump, cpu }
     }
