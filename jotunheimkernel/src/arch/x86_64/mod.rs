@@ -24,6 +24,4 @@ pub fn init(boot: &BootInfo) {
         ioapic::mask_all();
     }
     apic::paging(boot.hhdm_base);
-    apic::open_all_irqs();
-    apic::start_timer_hz(1000);
 }

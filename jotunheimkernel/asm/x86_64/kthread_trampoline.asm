@@ -9,7 +9,4 @@
 extern sched_exit_current_trampoline
 global kthread_trampoline
 kthread_trampoline:
-    sub rsp, 8         ; keep 16-byte alignment before CALL
-    call rax           ; entry(arg) -> !
-    add  rsp, 8        ; (won’t run if entry is noreturn)
-    jmp  sched_exit_current_trampoline
+    jmp rax

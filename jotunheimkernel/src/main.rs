@@ -14,11 +14,7 @@ mod util;
 extern crate alloc;
 
 use crate::{
-    arch::{native::smp::boot_all_aps},
-    bootinfo::BootInfo,
-    mem::reserved,
-    sched::exec,
-    util::zero_bss,
+    arch::{native::smp::boot_all_aps, x86_64::apic}, bootinfo::BootInfo, mem::reserved, sched::exec, util::zero_bss,
 };
 
 use core::panic::PanicInfo;
@@ -54,7 +50,8 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
             kprintln!("[JOTUNHEIM] Ended the kernel main thread.");
         });
         debug::setup();
-        kprintln!("Start");
+        apic::open_all_irqs();
+        apic::start_timer_hz(1000);
     });
     interrupts::enable();
     loop {

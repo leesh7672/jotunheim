@@ -134,7 +134,7 @@ pub fn init() {
                 },
                 tf: TrapFrame {
                     rip: kthread_trampoline as u64,
-                    rsp: top - 0x80,
+                    rsp: top - 0x28,
                     cs: kernel_cs() as u64,
                     rax: idle_main as u64,
                     rflags: 0x202,
@@ -213,7 +213,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         },
         tf: TrapFrame {
             rip: kthread_trampoline as u64,
-            rsp: top - 0x80,
+            rsp: top - 0x28,
             cs: kernel_cs() as u64,
             rax: entry as u64,
             rdi: arg as u64,
