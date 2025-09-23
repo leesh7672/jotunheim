@@ -3,7 +3,6 @@
 pub mod exec;
 pub mod sched_simd;
 
-use core::arch::asm;
 use core::u32;
 
 use alloc::boxed::Box;
@@ -11,13 +10,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
-use x86_64::instructions::{hlt, interrupts};
+use x86_64::instructions::hlt;
 
 extern crate alloc;
 
 use crate::arch::native::simd::{restore, save};
 use crate::debug::TrapFrame;
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */

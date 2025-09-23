@@ -1,4 +1,6 @@
 ; asm/x86_64/ap_trampoline.asm
+; SPDX-License-Identifier: JOSSL-1.0
+; Copyright (C) 2025 The Jotunheim Project
 ; Position-independent AP trampoline: 16 -> 32 -> 64, no .data, no 16-bit relocs.
 
 [bits 16]

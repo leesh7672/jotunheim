@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: JOSSL-1.0
+; Copyright (C) 2025 The Jotunheim Project
 ; kthread_trampoline:
 ; Stack layout expected at first run (top of stack):
 ;   [0] = arg
