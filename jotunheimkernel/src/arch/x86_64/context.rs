@@ -51,9 +51,14 @@ pub struct CpuContext {
 }
 
 unsafe extern "C" {
-    fn __ctx_switch(prev: *mut CpuContext, next: *const CpuContext);
+    unsafe fn __ctx_switch(prev: *mut CpuContext, next: *const CpuContext);
+    unsafe fn __first_switch(next: *const CpuContext) -> !;
 }
 
 pub fn switch(prev: *mut CpuContext, next: *const CpuContext) {
     unsafe { __ctx_switch(prev, next) }
+}
+
+pub fn first_switch(next: *const CpuContext){
+    unsafe {__first_switch(next)}
 }

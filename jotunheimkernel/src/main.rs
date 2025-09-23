@@ -17,7 +17,7 @@ use crate::{
     arch::native::smp::boot_all_aps,
     bootinfo::BootInfo,
     mem::reserved,
-    sched::{exec, yield_now},
+    sched::exec,
     util::zero_bss,
 };
 
@@ -54,6 +54,7 @@ pub extern "C" fn _start(boot: &BootInfo) -> ! {
             kprintln!("[JOTUNHEIM] Ended the kernel main thread.");
         });
         debug::setup();
+        sched::enter();
     });
     interrupts::enable();
     loop {

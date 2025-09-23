@@ -14,8 +14,9 @@ use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;
 
-use crate::arch::native::context::{switch, CpuContext};
+use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
+use crate::arch::x86_64::context::first_switch;
 use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
@@ -142,30 +143,32 @@ pub fn init() {
             }),
         );
     });
-    spawn(|| loop {
-        for _ in 0..1000 {
-            yield_now();
-        }
-        with_rq_locked(|rq| {
-            let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
-            let mut deads = Vec::<u64>::new();
-            for task in tasks.iter_mut() {
-                if task.state == TaskState::Dead {
-                    if task.time_slice == 0 {
-                        deads.insert(0, task.id);
-                    } else {
-                        task.time_slice -= 1;
+    spawn(|| {
+        loop {
+            for _ in 0..1000 {
+                yield_now();
+            }
+            with_rq_locked(|rq| {
+                let tasks: &mut Vec<Box<Task>> = rq.tasks.as_mut();
+                let mut deads = Vec::<u64>::new();
+                for task in tasks.iter_mut() {
+                    if task.state == TaskState::Dead {
+                        if task.time_slice == 0 {
+                            deads.insert(0, task.id);
+                        } else {
+                            task.time_slice -= 1;
+                        }
                     }
                 }
-            }
-            for id in deads {
-                let mut i = 0;
-                while id == tasks[i].id {
-                    i += 1;
+                for id in deads {
+                    let mut i = 0;
+                    while id == tasks[i].id {
+                        i += 1;
+                    }
+                    tasks.remove(i);
                 }
-                tasks.remove(i);
-            }
-        });
+            });
+        }
     });
 }
 
@@ -186,6 +189,34 @@ where
 }
 
 /* ------------------------------- Public API ---------------------------------- */
+
+pub fn enter() {
+    let Some(next) = with_rq_locked(|rq| {
+        let current = rq.current;
+        let next;
+        {
+            let picked = rq.pick_next();
+            if picked.is_none() {
+                return None;
+            } else {
+                next = picked.unwrap();
+            }
+        }
+        {
+            let t = rq.tasks[current].as_mut();
+            t.state = TaskState::Ready;
+            if t.time_slice != u32::MAX {
+                t.time_slice = DEFAULT_SLICE;
+            }
+        }
+        rq.tasks[next].as_mut().state = TaskState::Running;
+        rq.need_resched = false;
+        Some(rq.tasks[next].clone())
+    }) else {
+        return;
+    };
+    first_switch(&raw const next.ctx);
+}
 
 pub fn spawn<F>(func: F)
 where

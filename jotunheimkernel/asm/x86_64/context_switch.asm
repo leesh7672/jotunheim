@@ -3,6 +3,7 @@
 
 [BITS 64]
 global __ctx_switch
+global __first_switch
 default rel
 section .text
 
@@ -61,4 +62,35 @@ __ctx_switch:
     ret
 
 .ret_here:
+    ret
+
+__first_switch:
+    mov     rdx, rdi          ; rdx = next context (stable base)
+
+    ; Restore general purpose registers
+    mov     r15, [rdx+0x00]
+    mov     r14, [rdx+0x08]
+    mov     r13, [rdx+0x10]
+    mov     r12, [rdx+0x18]
+    mov     r11, [rdx+0x20]
+    mov     r10, [rdx+0x28]
+    mov     r9,  [rdx+0x30]
+    mov     r8,  [rdx+0x38]
+    mov     rdi, [rdx+0x40]
+    mov     rsi, [rdx+0x48]
+    mov     rbx, [rdx+0x50]
+    mov     rbp, [rdx+0x58]
+    mov     rdx, [rdx+0x60]   ; overwrite rdx itself last
+    mov     rcx, [rdx+0x68]
+    mov     rax, [rdx+0x70]
+
+    ; Switch to new stack
+    mov     rsp, [rdi+0x78]   ; careful: if you want base still, capture above
+
+    ; Restore flags
+    push    qword [rdi+0x88]
+    popfq
+
+    ; Push next RIP and jump into it
+    push    qword [rdi+0x80]
     ret
