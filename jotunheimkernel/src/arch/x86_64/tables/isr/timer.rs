@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 use crate::{
-    arch::x86_64::{apic, tables::ISR},
-    sched,
+    arch::x86_64::{apic, tables::ISR}, debug::TrapFrame, sched
 };
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_timer_rust() {
+pub extern "C" fn isr_timer_rust(tf: &mut TrapFrame) {
     apic::eoi();
-    sched::tick()
+    *tf = sched::tick(*tf)
 }
 
 #[unsafe(no_mangle)]

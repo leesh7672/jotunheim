@@ -1,8 +1,10 @@
-use crate::kprintln;
-
 // src/arch/x86_64/context.rs
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
+
+use crate::kprintln;
+
+#[derive(Copy, Clone, Default, Debug)]
 #[repr(C)]
 pub struct TrapFrame {
     pub r15: u64,
@@ -52,6 +54,6 @@ pub fn switch(prev: *mut CpuContext, next: *const CpuContext) {
     unsafe { __ctx_switch(prev, next) }
 }
 
-pub fn first_switch(next: *const CpuContext) -> ! {
+pub fn first_switch(next: *const CpuContext) {
     unsafe { __first_switch(next) }
 }

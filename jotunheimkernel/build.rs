@@ -6,7 +6,6 @@ use std::{env, path::PathBuf};
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=asm/x86_64/isr_stubs.asm");
-    println!("cargo:rerun-if-changed=asm/x86_64/context_switch.asm");
     println!("cargo:rerun-if-changed=asm/x86_64/kthread-trampoline.asm");
     println!("cargo:rerun-if-changed=asm/x86_64/ap_trampoline.asm");
 
@@ -35,7 +34,6 @@ fn main() {
 
     build
         .file("asm/x86_64/isr_stubs.asm")
-        .file("asm/x86_64/context_switch.asm")
         .file("asm/x86_64/kthread_trampoline.asm")
         .file("asm/x86_64/ap_trampoline.asm");
 
