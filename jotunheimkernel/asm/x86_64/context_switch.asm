@@ -80,9 +80,9 @@ __first_switch:
     mov     rsi, [rdx+0x48]
     mov     rbx, [rdx+0x50]
     mov     rbp, [rdx+0x58]
-    mov     rdx, [rdx+0x60]   ; overwrite rdx itself last
     mov     rcx, [rdx+0x68]
     mov     rax, [rdx+0x70]
+    mov     rdx, [rdx+0x60]   ; overwrite rdx itself last
 
     ; Switch to new stack
     mov     rsp, [rdi+0x78]   ; careful: if you want base still, capture above
