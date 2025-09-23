@@ -244,31 +244,33 @@ section .text
 ; ───────────────────────────── Concrete stubs ───────────────────────────────
 
 ; Faults/traps without error codes
-DEF_ISR_NOERR isr_de_stub, isr_de_rust
+;DEF_ISR_NOERR isr_de_stub, isr_de_rust
 DEF_ISR_NOERR isr_db_stub, isr_db_rust
-DEF_ISR_NOERR isr_nmi_stub, isr_nmi_rust
+;DEF_ISR_NOERR isr_nmi_stub, isr_nmi_rust
 DEF_ISR_NOERR isr_bp_stub, isr_bp_rust
-DEF_ISR_NOERR isr_of_stub, isr_of_rust
-DEF_ISR_NOERR isr_br_stub, isr_br_rust
+;DEF_ISR_NOERR isr_of_stub, isr_of_rust
+;DEF_ISR_NOERR isr_br_stub, isr_br_rust
 DEF_ISR_NOERR isr_ud_stub, isr_ud_rust
-DEF_ISR_NOERR isr_nm_stub, isr_nm_rust
-DEF_ISR_NOERR isr_mf_stub, isr_mf_rust
-DEF_ISR_NOERR isr_xm_stub, isr_xm_rust
-DEF_ISR_NOERR isr_virt_stub, isr_virt_rust
+;DEF_ISR_NOERR isr_nm_stub, isr_nm_rust
+;DEF_ISR_NOERR isr_mf_stub, isr_mf_rust
+;DEF_ISR_NOERR isr_xm_stub, isr_xm_rust
+;DEF_ISR_NOERR isr_virt_stub, isr_virt_rust
+
 
 ; Faults with error codes
 DEF_ISR_ERR   isr_df_stub, isr_df_rust
-DEF_ISR_ERR   isr_ts_stub, isr_ts_rust
-DEF_ISR_ERR   isr_np_stub, isr_np_rust
-DEF_ISR_ERR   isr_ss_stub, isr_ss_rust
+;DEF_ISR_ERR   isr_ts_stub, isr_ts_rust
+;DEF_ISR_ERR   isr_np_stub, isr_np_rust
+;DEF_ISR_ERR   isr_ss_stub, isr_ss_rust
 DEF_ISR_ERR   isr_gp_stub, isr_gp_rust
 DEF_ISR_ERR   isr_pf_stub, isr_pf_rust
-DEF_ISR_ERR   isr_ac_stub, isr_ac_rust
+;DEF_ISR_ERR   isr_ac_stub, isr_ac_rust
 
 ; IRQs (examples)
 DEF_ISR_NOERR isr_timer_stub,      isr_timer_rust
 DEF_ISR_NOERR isr_spurious_stub,   isr_spurious_rust
-DEF_ISR_NOERR isr_apic_error_stub, isr_apic_error_rust
+;DEF_ISR_NOERR isr_apic_error_stub, isr_apic_error_rust
+DEF_ISR_NOERR isr_default_stub, isr_default_rust
 
 ; Template for more IOAPIC/LAPIC IRQ vectors you wire later:
 ; DEF_ISR_NOERR isr_irq20_stub, isr_irq20_rust
