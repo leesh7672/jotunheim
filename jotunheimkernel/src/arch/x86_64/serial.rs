@@ -86,7 +86,7 @@ pub fn _kprint(args: fmt::Arguments) {
     if !com1_ready() {
         return;
     }
-    let _ = Com1Writer.write_fmt(args);
+    without_interrupts(||Com1Writer.write_fmt(args)).unwrap();
 }
 
 #[doc(hidden)]

@@ -17,8 +17,8 @@ extern crate alloc;
 use crate::arch::native::context::{CpuContext, switch};
 use crate::arch::native::simd::{restore, save};
 use crate::arch::x86_64::context::first_switch;
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
+use crate::{kprintln, mem};
 
 /* ------------------------------- Types & consts ------------------------------- */
 
@@ -206,7 +206,8 @@ pub fn enter() {
         rq.tasks[next].as_mut().state = TaskState::Running;
         rq.need_resched = false;
         rq.current = next;
-        Some(&raw const rq.tasks[next].ctx)
+        restore(rq.tasks[next].simd.as_mut_ptr());
+        Some(&raw mut rq.tasks[next].ctx)
     }) else {
         return;
     };
@@ -259,7 +260,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
 }
 
 pub fn yield_now() {
-    let Some((prev_ptr, prev_simd, next_ptr, next_simd)) = with_rq_locked(|rq| {
+    let Some((prev, next)) = with_rq_locked(|rq| {
         let current = rq.current;
         let next_idx;
         {
@@ -279,40 +280,22 @@ pub fn yield_now() {
         }
         rq.need_resched = false;
         rq.tasks[next_idx].as_mut().state = TaskState::Running;
-        let prev_idx = current;
-        let (prev, next) = if prev_idx < next_idx {
-            let (left, right) = rq.tasks.split_at_mut(next_idx);
-            let prev = &mut left[prev_idx];
-            let next = &mut right[0]; // element at next_idx
-            (prev, next)
-        } else {
-            let (left, right) = rq.tasks.split_at_mut(prev_idx);
-            let next = &mut left[next_idx]; // element at next_idx
-            let prev = &mut right[0]; // element at prev_idx
-            (prev, next)
-        };
 
         rq.current = next_idx;
 
-        // Capture stable raw pointers (Boxes don’t move)
-        let prev_ctx = &raw mut prev.ctx;
-        let next_ctx = &raw mut next.ctx;
-        let prev_simd = prev.simd.as_mut_ptr();
-        let next_simd = next.simd.as_mut_ptr();
-
-        Some((prev_ctx, prev_simd, next_ctx, next_simd))
+        save(rq.tasks[current].simd.as_mut_ptr());
+        restore(rq.tasks[rq.current].simd.as_mut_ptr());
+        let prev = &raw mut rq.tasks[current].ctx;
+        let next = &raw mut rq.tasks[rq.current].ctx;
+        Some((prev, next))
     }) else {
         return;
     };
-    unsafe {
-        save(prev_simd);
-        restore(next_simd);
-        switch(&mut *prev_ptr, &mut *next_ptr);
-    }
+    switch(prev, next);
 }
 
 pub fn tick() {
-    let Some((prev_ptr, prev_simd, next_ptr, next_simd)) = with_rq_locked(|rq| {
+    let Some((prev, next)) = with_rq_locked(|rq| {
         let current = rq.current;
         {
             let t = rq.tasks[current].as_mut();
@@ -359,41 +342,20 @@ pub fn tick() {
                     t.time_slice = DEFAULT_SLICE;
                 }
             }
-            rq.tasks[next_idx].as_mut().state = TaskState::Running;
             rq.need_resched = false;
+            rq.tasks[next_idx].as_mut().state = TaskState::Running;
             rq.current = next_idx;
-            let prev_idx = current;
-            if prev_idx == next_idx {
-                return None;
-            }
-            let (prev, next) = if prev_idx < next_idx {
-                let (left, right) = rq.tasks.split_at_mut(next_idx);
-                let prev = &mut left[prev_idx];
-                let next = &mut right[0]; // element at next_idx
-                (prev, next)
-            } else {
-                let (left, right) = rq.tasks.split_at_mut(prev_idx);
-                let next = &mut left[next_idx]; // element at next_idx
-                let prev = &mut right[0]; // element at prev_idx
-                (prev, next)
-            };
 
-            // Capture stable raw pointers (Boxes don’t move)
-            let prev_ctx = &raw mut prev.ctx;
-            let next_ctx = &raw mut next.ctx;
-            let prev_simd = prev.simd.as_mut_ptr();
-            let next_simd = next.simd.as_mut_ptr();
-
-            Some((prev_ctx, prev_simd, next_ctx, next_simd))
+            save(rq.tasks[current].simd.as_mut_ptr());
+            restore(rq.tasks[rq.current].simd.as_mut_ptr());
+            let prev = &raw mut rq.tasks[current].ctx;
+            let next = &raw mut rq.tasks[rq.current].ctx;
+            Some((prev, next))
         }
     }) else {
         return;
     };
-    unsafe {
-        save(prev_simd);
-        restore(next_simd);
-        switch(&mut *prev_ptr, &mut *next_ptr);
-    }
+    switch(prev, next);
 }
 /* ------------------------------ Core switching ------------------------------- */
 
