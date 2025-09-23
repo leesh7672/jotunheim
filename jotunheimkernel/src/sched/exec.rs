@@ -5,7 +5,7 @@
 use heapless::Deque;
 use spin::{Mutex, Once};
 
-use crate::sched;
+use crate::{kprintln, sched};
 
 // Tune as needed
 const QUEUE_CAPACITY: usize = 64; // max pending closures (early AP)
@@ -74,15 +74,12 @@ where
 // ===== Global queue + single serving thread =====
 
 static QUEUE: Mutex<Deque<Slot, QUEUE_CAPACITY>> = Mutex::new(Deque::new());
-static STARTED: Once<()> = Once::new();
 
 /// Call once when the scheduler is up (e.g., end of `sched::init()`).
 /// Spawns one server thread that turns queued slots into `sched::spawn(closure)`d threads.
 pub fn init() {
-    STARTED.call_once(|| {
-        // Your public scheduler API takes closures — perfect.
-        crate::sched::spawn(|| server_main());
-    });
+    // Your public scheduler API takes closures — perfect.
+    sched::spawn(|| server_main());
 }
 
 /// Early-AP safe: capture closure into a fixed-size slot and enqueue it.
@@ -108,7 +105,7 @@ fn server_main() -> ! {
                 slot.invoke_and_forget();
             });
         }
-        for _ in 0..1_00 {
+        for _ in 0..1_000 {
             sched::yield_now();
         }
     }

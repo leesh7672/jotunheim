@@ -143,6 +143,7 @@ pub fn init() {
             }),
         );
     });
+    /*
     spawn(|| {
         loop {
             for _ in 0..1000 {
@@ -170,6 +171,7 @@ pub fn init() {
             });
         }
     });
+     */
 }
 
 struct ThreadFn<F>
