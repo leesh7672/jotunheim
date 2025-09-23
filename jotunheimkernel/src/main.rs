@@ -14,7 +14,11 @@ mod util;
 extern crate alloc;
 
 use crate::{
-    arch::{native::smp::boot_all_aps, x86_64::apic}, bootinfo::BootInfo, mem::reserved, sched::exec, util::zero_bss,
+    arch::{native::smp::boot_all_aps},
+    bootinfo::BootInfo,
+    mem::reserved,
+    sched::exec,
+    util::zero_bss,
 };
 
 use core::panic::PanicInfo;

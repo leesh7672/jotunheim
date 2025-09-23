@@ -6,7 +6,8 @@ use crate::{
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(tf: *mut TrapFrame) {
-    unsafe { *tf = sched::tick(*tf ) };
+    unsafe { *tf = sched::tick(*tf) };
+    kprintln!("ret");
     apic::eoi();
 }
 

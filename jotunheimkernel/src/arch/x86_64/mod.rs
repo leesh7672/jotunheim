@@ -2,7 +2,7 @@
 // Copyright (C) 2025 The Jotunheim Project
 mod ap_trampoline;
 pub mod apic;
-pub mod context;
+pub mod trapframe;
 pub mod ioapic;
 pub mod mmio_map;
 pub mod serial;
@@ -17,12 +17,12 @@ use tables::idt;
 
 pub fn init(boot: &BootInfo) {
     simd::init();
-    unsafe {
-        ioapic::mask_all();
-    }
     apic::early_init();
     isr::init();
     idt::init(gdt::init());
+    unsafe {
+        ioapic::mask_all();
+    }
     apic::paging(boot.hhdm_base);
     apic::open_all_irqs();
     apic::start_timer_hz(1000);

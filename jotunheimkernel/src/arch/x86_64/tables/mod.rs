@@ -4,8 +4,6 @@ pub mod gdt;
 pub mod idt;
 pub mod isr;
 
-use core::sync::atomic::{AtomicBool, Ordering};
-
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;

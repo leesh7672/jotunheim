@@ -91,6 +91,11 @@ pub fn kernel_cs() -> u16{
     TEMP_SEL.lock().unwrap().code.0
 }
 
+pub fn kernel_ds() -> u16{
+    TEMP_SEL.lock().unwrap().data.0
+}
+
+
 /// Build + load GDT/TSS once; return selectors.
 pub fn init() -> Selectors {
     ISR::new(None, None, Some(Box::new(Stack::new())));

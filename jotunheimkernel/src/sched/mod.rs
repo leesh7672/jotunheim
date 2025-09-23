@@ -15,7 +15,7 @@ use x86_64::instructions::interrupts::without_interrupts;
 extern crate alloc;
 
 use crate::arch::native::simd::{restore, save};
-use crate::arch::x86_64::tables::gdt::kernel_cs;
+use crate::arch::x86_64::tables::gdt::{kernel_cs, kernel_ds};
 use crate::debug::TrapFrame;
 use crate::sched::sched_simd::SimdArea;
 
@@ -30,13 +30,13 @@ pub enum TaskState {
 
 pub type TaskId = u64;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Task {
     id: TaskId,
     state: TaskState,
     simd: SimdArea,
     time_slice: u32,
-    trap: TrapFrame,
+    tf: TrapFrame,
     _stack: Box<ThreadStack>,
 }
 
@@ -119,10 +119,13 @@ pub fn init() {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top_aligned = ((stack_ptr as usize) & !0xF) as u64; // 16-align
-    let frame = (top_aligned - 16) as *mut u64; // space for [arg][entry]
+    let frame = top_aligned - 0x28;
     unsafe {
-        core::ptr::write(frame.add(0), 0 as u64);
-        core::ptr::write(frame.add(1), idle_main as u64);
+        core::ptr::write((frame + 0x00) as *mut u64, kthread_trampoline as u64);
+        core::ptr::write((frame + 0x08) as *mut u64, kernel_cs() as u64);
+        core::ptr::write((frame + 0x10) as *mut u64, 0x202);
+        core::ptr::write((frame + 0x18) as *mut u64, 0u64);
+        core::ptr::write((frame + 0x20) as *mut u64, idle_main as u64);
     }
     with_rq_locked(|rq| {
         let id = rq.next_id;
@@ -135,12 +138,12 @@ pub fn init() {
                 simd: SimdArea {
                     dump: [0; sched_simd::SIZE],
                 },
-                trap: TrapFrame {
+                tf: TrapFrame {
                     rip: kthread_trampoline as u64,
-                    rsp: frame as u64,
+                    rsp: (frame + 0x18) as u64,
                     cs: kernel_cs() as u64,
                     rflags: 0x202,
-                    ss: 0,
+                    ss: kernel_ds() as u64,
                     ..TrapFrame::default()
                 },
                 time_slice: DEFAULT_SLICE,
@@ -208,22 +211,25 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top_aligned = ((stack_ptr as usize) & !0xF) as u64;
-    let frame = (top_aligned - 16) as *mut u64;
+    let frame = top_aligned;
     unsafe {
-        core::ptr::write(frame.add(0), arg as u64);
-        core::ptr::write(frame.add(1), entry as u64);
+        core::ptr::write((frame + 0x00) as *mut u64, kthread_trampoline as u64);
+        core::ptr::write((frame + 0x08) as *mut u64, kernel_cs() as u64);
+        core::ptr::write((frame + 0x10) as *mut u64, 0x202);
+        core::ptr::write((frame + 0x18) as *mut u64, arg as u64);
+        core::ptr::write((frame + 0x20) as *mut u64, entry as u64);
     }
     let mut element = Box::new(Task {
         state: TaskState::Ready,
         simd: SimdArea {
             dump: [0; sched_simd::SIZE],
         },
-        trap: TrapFrame {
+        tf: TrapFrame {
             rip: kthread_trampoline as u64,
-            rsp: frame as u64,
+            rsp: (frame + 0x18) as u64,
             cs: kernel_cs() as u64,
             rflags: 0x202,
-            ss: 0,
+            ss: kernel_ds() as u64,
             ..TrapFrame::default()
         },
         time_slice: DEFAULT_SLICE,
@@ -298,14 +304,14 @@ pub fn tick(tf: TrapFrame) -> TrapFrame {
                     t.time_slice = DEFAULT_SLICE;
                 }
                 save(rq.tasks[current].simd.as_mut_ptr());
-                rq.tasks[current].trap = tf;
+                rq.tasks[current].tf = tf;
             }
             rq.need_resched = false;
             rq.tasks[next_idx].as_mut().state = TaskState::Running;
             rq.current = Some(next_idx);
 
             restore(rq.tasks[next_idx].simd.as_mut_ptr());
-            Some(rq.tasks[next_idx].trap)
+            Some(rq.tasks[next_idx].tf)
         }
     }) else {
         return tf;

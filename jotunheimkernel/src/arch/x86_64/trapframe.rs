@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct TrapFrame {
     pub r15: u64,
@@ -28,4 +28,3 @@ pub struct TrapFrame {
     pub rsp: u64,
     pub ss: u64,
 }
-
