@@ -37,6 +37,9 @@ extern isr_db_rust             ; fn(*mut TrapFrame) -> ()
 extern isr_timer_rust          ; fn() -> ()
 extern isr_spurious_rust       ; fn() -> ()
 
+%define RFLAGS_NT   (1<<14)
+%define RFLAGS_RF   (1<<16)
+%define RFLAGS_VM   (1<<17)
 ; ---------------- TrapFrame field offsets (bytes) ----------------
 %define TF_R15      (0*8)
 %define TF_R14      (1*8)
@@ -182,7 +185,7 @@ extern isr_spurious_rust       ; fn() -> ()
     mov     rax, [rsp + TF_CS]
     mov     [r12 + 8],  rax
     mov     rax, [rsp + TF_RFLAGS]
-    mov     [r12 + 16], rax
+    mov     [r12 + 16], rax 
 %endmacro
 
 ; =============================================================================
@@ -251,7 +254,7 @@ isr_df_stub:
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
     iretq
-
+    
 ; LAPIC Timer (no error) — minimal edge (no TF). If you want TF-based preemption,
 ; convert to BUILD_TF_NO_ERR 0x20 and pass &TrapFrame instead.
 isr_timer_stub:

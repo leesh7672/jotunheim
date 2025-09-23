@@ -9,12 +9,13 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use spin::Mutex;
-use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::instructions::hlt;
+use x86_64::instructions::interrupts::without_interrupts;
 
 extern crate alloc;
 
 use crate::arch::native::simd::{restore, save};
+use crate::arch::x86_64::tables::gdt::kernel_cs;
 use crate::debug::TrapFrame;
 use crate::sched::sched_simd::SimdArea;
 
@@ -137,7 +138,8 @@ pub fn init() {
                 trap: TrapFrame {
                     rip: kthread_trampoline as u64,
                     rsp: frame as u64,
-                    rflags: 0,
+                    cs: kernel_cs() as u64,
+                    rflags: 0x202,
                     ..TrapFrame::default()
                 },
                 time_slice: DEFAULT_SLICE,
@@ -218,6 +220,8 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         trap: TrapFrame {
             rip: kthread_trampoline as u64,
             rsp: frame as u64,
+            cs: kernel_cs() as u64,
+            rflags: 0x202,
             ..TrapFrame::default()
         },
         time_slice: DEFAULT_SLICE,

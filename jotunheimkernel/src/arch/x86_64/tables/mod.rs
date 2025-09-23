@@ -20,8 +20,6 @@ use crate::debug::TrapFrame;
 use crate::kprintln;
 use crate::sched::exec;
 
-static THROTTLED_ONCE: AtomicBool = AtomicBool::new(false);
-
 // ---------- Rust ISR targets that NASM stubs call ----------
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_default_rust(_tf: &mut TrapFrame) {
@@ -59,7 +57,7 @@ impl Stack {
 
 impl CpuStack {
     pub fn new(cpu: CpuId) -> Self {
-        const STACK_SIZE: usize = 0x8_0000;
+        const STACK_SIZE: usize = 0x2_0000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
         Self { dump, cpu }
     }

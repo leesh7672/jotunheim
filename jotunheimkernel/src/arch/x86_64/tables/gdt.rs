@@ -19,10 +19,8 @@ use x86_64::{
 use crate::{
     acpi::cpuid::CpuId,
     arch::x86_64::tables::{
-        ISR, Stack,
-        idt::{self},
-        registrate,
-    },
+        idt::{self}, registrate, Stack, ISR
+    }
 };
 
 #[derive(Copy, Clone)]
@@ -88,6 +86,10 @@ fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors 
 
 static TEMP_GDT: Mutex<Option<GlobalDescriptorTable>> = Mutex::new(None);
 static TEMP_SEL: Mutex<Option<Selectors>> = Mutex::new(None);
+
+pub fn kernel_cs() -> u16{
+    TEMP_SEL.lock().unwrap().code.0
+}
 
 /// Build + load GDT/TSS once; return selectors.
 pub fn init() -> Selectors {

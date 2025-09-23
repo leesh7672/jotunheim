@@ -11,6 +11,7 @@ use crate::{
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
+    kprintln!("GP");
     if cfg!(debug_assertions) {
         without_interrupts(|| {
             let last_hit = {
@@ -46,6 +47,7 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
+    kprintln!("PF");
     if cfg!(debug_assertions) {
         without_interrupts(|| {
             let last_hit = {
@@ -81,6 +83,7 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
+    kprintln!("DF");
     if cfg!(debug_assertions) {
         without_interrupts(|| {
             let last_hit = {
