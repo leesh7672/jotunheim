@@ -71,7 +71,7 @@ impl RunQueue {
                 break;
             }
         }
-        if matches!(self.tasks[self.current].state, TaskState::Ready) {
+        if matches!(self.tasks[i].state, TaskState::Ready) {
             return Some(i);
         }
         let t0 = &self.tasks[0];
@@ -193,8 +193,7 @@ where
 /* ------------------------------- Public API ---------------------------------- */
 
 pub fn enter() {
-    let Some(next) = with_rq_locked(|rq| {
-        let current = rq.current;
+    let Some(ctx) = with_rq_locked(|rq| {
         let next;
         {
             let picked = rq.pick_next();
@@ -204,20 +203,14 @@ pub fn enter() {
                 next = picked.unwrap();
             }
         }
-        {
-            let t = rq.tasks[current].as_mut();
-            t.state = TaskState::Ready;
-            if t.time_slice != u32::MAX {
-                t.time_slice = DEFAULT_SLICE;
-            }
-        }
         rq.tasks[next].as_mut().state = TaskState::Running;
         rq.need_resched = false;
-        Some(rq.tasks[next].clone())
+        rq.current = next;
+        Some(&raw const rq.tasks[next].ctx)
     }) else {
         return;
     };
-    first_switch(&raw const next.ctx);
+    first_switch(ctx);
 }
 
 pub fn spawn<F>(func: F)
@@ -239,43 +232,42 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         core::ptr::write(frame.add(1), entry as u64);
     }
 
-    with_rq_locked(|rq| {
+    let mut element = Box::new(Task {
+        state: TaskState::Ready,
+        ctx: CpuContext {
+            rip: kthread_trampoline as u64,
+            rsp: frame as u64,
+            rflags: 0x202,
+            ..CpuContext::default()
+        },
+        simd: SimdArea {
+            dump: [0; sched_simd::SIZE],
+        },
+        time_slice: DEFAULT_SLICE,
+        _stack: stack,
+        id: 0,
+    });
+
+    with_rq_locked(move |rq| {
         let id = rq.next_id;
+        element.id = id;
         rq.next_id += 1;
-        rq.tasks.insert(
-            0,
-            Box::new(Task {
-                id,
-                state: TaskState::Ready,
-                ctx: CpuContext {
-                    rip: kthread_trampoline as u64,
-                    rsp: frame as u64,
-                    rflags: 0x202,
-                    ..CpuContext::default()
-                },
-                simd: SimdArea {
-                    dump: [0; sched_simd::SIZE],
-                },
-                time_slice: DEFAULT_SLICE,
-                _stack: stack,
-            }),
-        );
+        rq.tasks.insert(0, element);
         rq.current += 1;
-        rq.need_resched = true;
         id
     })
 }
 
 pub fn yield_now() {
-    let Some((mut prev, mut next)) = with_rq_locked(|rq| {
+    let Some((prev_ptr, prev_simd, next_ptr, next_simd)) = with_rq_locked(|rq| {
         let current = rq.current;
-        let next;
+        let next_idx;
         {
             let picked = rq.pick_next();
             if picked.is_none() {
                 return None;
             } else {
-                next = picked.unwrap();
+                next_idx = picked.unwrap();
             }
         }
         {
@@ -285,15 +277,38 @@ pub fn yield_now() {
                 t.time_slice = DEFAULT_SLICE;
             }
         }
-        rq.tasks[next].as_mut().state = TaskState::Running;
         rq.need_resched = false;
-        Some((rq.tasks[current].clone(), rq.tasks[next].clone()))
+        rq.tasks[next_idx].as_mut().state = TaskState::Running;
+        let prev_idx = current;
+        let (prev, next) = if prev_idx < next_idx {
+            let (left, right) = rq.tasks.split_at_mut(next_idx);
+            let prev = &mut left[prev_idx];
+            let next = &mut right[0]; // element at next_idx
+            (prev, next)
+        } else {
+            let (left, right) = rq.tasks.split_at_mut(prev_idx);
+            let next = &mut left[next_idx]; // element at next_idx
+            let prev = &mut right[0]; // element at prev_idx
+            (prev, next)
+        };
+
+        rq.current = next_idx;
+
+        // Capture stable raw pointers (Boxes don’t move)
+        let prev_ctx = &raw mut prev.ctx;
+        let next_ctx = &raw mut next.ctx;
+        let prev_simd = prev.simd.as_mut_ptr();
+        let next_simd = next.simd.as_mut_ptr();
+
+        Some((prev_ctx, prev_simd, next_ctx, next_simd))
     }) else {
         return;
     };
-    save(prev.simd.as_mut_ptr());
-    restore(next.simd.as_mut_ptr());
-    switch(&mut prev.ctx, &mut next.ctx);
+    unsafe {
+        save(prev_simd);
+        restore(next_simd);
+        switch(&mut *prev_ptr, &mut *next_ptr);
+    }
 }
 
 pub fn tick() {
@@ -345,7 +360,12 @@ pub fn tick() {
                 }
             }
             rq.tasks[next_idx].as_mut().state = TaskState::Running;
+            rq.need_resched = false;
+            rq.current = next_idx;
             let prev_idx = current;
+            if prev_idx == next_idx {
+                return None;
+            }
             let (prev, next) = if prev_idx < next_idx {
                 let (left, right) = rq.tasks.split_at_mut(next_idx);
                 let prev = &mut left[prev_idx];
@@ -406,9 +426,9 @@ where
     without_interrupts(|| {
         let mut guard = RQ.lock();
         let op = guard.as_mut();
-        let ret: R;
+        let ret;
         if let Some(rq) = op {
-            ret = f(rq.as_mut())
+            ret = f(rq.as_mut());
         } else {
             *guard = Some(Box::new(RunQueue {
                 tasks: Vec::new(),
@@ -416,8 +436,9 @@ where
                 next_id: 0,
                 need_resched: true,
             }));
-            ret = f(guard.as_mut().unwrap().as_mut())
+            ret = f(guard.as_mut().unwrap().as_mut());
         }
+        drop(guard);
         ret
     })
 }

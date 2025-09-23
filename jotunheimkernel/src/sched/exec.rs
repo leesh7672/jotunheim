@@ -3,9 +3,9 @@
 // src/sched/exec.rs
 
 use heapless::Deque;
-use spin::{Mutex, Once};
+use spin::Mutex;
 
-use crate::{kprintln, sched};
+use crate::sched;
 
 // Tune as needed
 const QUEUE_CAPACITY: usize = 64; // max pending closures (early AP)

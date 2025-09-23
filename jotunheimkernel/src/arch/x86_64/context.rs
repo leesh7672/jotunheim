@@ -1,3 +1,5 @@
+use crate::kprintln;
+
 // src/arch/x86_64/context.rs
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
@@ -59,6 +61,6 @@ pub fn switch(prev: *mut CpuContext, next: *const CpuContext) {
     unsafe { __ctx_switch(prev, next) }
 }
 
-pub fn first_switch(next: *const CpuContext){
-    unsafe {__first_switch(next)}
+pub fn first_switch(next: *const CpuContext) -> ! {
+    unsafe { __first_switch(next) }
 }
