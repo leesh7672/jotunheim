@@ -67,7 +67,7 @@ __ctx_switch:
 __first_switch:
     mov     rdx, rdi          ; rdx = next context (stable base)
 
-    ; Restore general purpose registers
+    ; Restore GPRs that don't destroy BASE
     mov     r15, [rdx+0x00]
     mov     r14, [rdx+0x08]
     mov     r13, [rdx+0x10]
@@ -76,21 +76,20 @@ __first_switch:
     mov     r10, [rdx+0x28]
     mov     r9,  [rdx+0x30]
     mov     r8,  [rdx+0x38]
-    mov     rdi, [rdx+0x40]
-    mov     rsi, [rdx+0x48]
     mov     rbx, [rdx+0x50]
     mov     rbp, [rdx+0x58]
     mov     rcx, [rdx+0x68]
     mov     rax, [rdx+0x70]
-    mov     rdx, [rdx+0x60]   ; overwrite rdx itself last
 
-    ; Switch to new stack
-    mov     rsp, [rdi+0x78]   ; careful: if you want base still, capture above
+    ; Switch to next stack before flags/ret
+    mov     rsp, [rdx+0x78]
 
-    ; Restore flags
-    push    qword [rdi+0x88]
+    ; Restore FLAGS exactly as saved
+    push    qword [rdx+0x88]
     popfq
-
-    ; Push next RIP and jump into it
-    push    qword [rdi+0x80]
+    ; Push next RIP on next stack, then set arg regs and RET
+    mov     rdi, [rdx+0x40]
+    mov     rsi, [rdx+0x48]
+    push    qword [rdx+0x80]           ; may #PF if next.ctx+0x80 unmapped
+    mov     rdx, [rdx+0x60]            ; now safe to restore RDX (BASE no longer needed)
     ret
