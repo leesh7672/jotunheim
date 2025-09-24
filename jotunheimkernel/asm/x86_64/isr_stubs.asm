@@ -38,9 +38,6 @@ extern isr_db_rust             ; fn(*mut TrapFrame) -> ()
 extern isr_timer_rust          ; fn() -> ()
 extern isr_spurious_rust       ; fn() -> ()
 
-%define RFLAGS_NT   (1<<14)
-%define RFLAGS_RF   (1<<16)
-%define RFLAGS_VM   (1<<17)
 ; ---------------- TrapFrame field offsets (bytes) ----------------
 %define TF_R15      (0*8)
 %define TF_R14      (1*8)
@@ -188,7 +185,6 @@ extern isr_spurious_rust       ; fn() -> ()
     mov     rax, [rsp + TF_CS]
     mov     [r12 + 8],  rax
     mov     rax, [rsp + TF_RFLAGS]
-    and     rax, ~(RFLAGS_NT | RFLAGS_RF | RFLAGS_VM) 
     mov     [r12 + 16], rax
 %endmacro
 

@@ -121,11 +121,14 @@ pub fn init() {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top = ((stack_ptr as usize) & !0xF) as u64;
-    let frame = top - 0x10;
+    let frame = top - 0x30;
     unsafe {
         let frame_ptr = frame as *mut u64;
-        ptr::write(frame_ptr.add(0), 0u64);
-        ptr::write(frame_ptr.add(1), idle_main as u64);
+        ptr::write(frame_ptr.add(0), kthread_trampoline as u64);
+        ptr::write(frame_ptr.add(1), kernel_cs() as u64);
+        ptr::write(frame_ptr.add(2), 0x202);
+        ptr::write(frame_ptr.add(3), 0u64);
+        ptr::write(frame_ptr.add(4), idle_main as u64);
     };
     with_rq_locked(|rq| {
         let id = rq.next_id;
@@ -211,12 +214,14 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top = ((stack_ptr as usize) & !0xF) as u64;
-    let frame = top - 0x10;
-    kprintln!("Proper RSP: {:x}", frame);
+    let frame = top - 0x30;
     unsafe {
         let frame_ptr = frame as *mut u64;
-        ptr::write(frame_ptr.add(0), arg as u64);
-        ptr::write(frame_ptr.add(1), entry as u64);
+        ptr::write(frame_ptr.add(0), kthread_trampoline as u64);
+        ptr::write(frame_ptr.add(1), kernel_cs() as u64);
+        ptr::write(frame_ptr.add(2), 0x202);
+        ptr::write(frame_ptr.add(3), arg as u64);
+        ptr::write(frame_ptr.add(4), entry as u64);
     };
     let mut element = Box::new(Task {
         state: TaskState::Ready,

@@ -1,14 +1,15 @@
-use x86_64::instructions::interrupts::without_interrupts;
-
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
+
 use crate::{
-    arch::x86_64::{apic, tables::Interrupt}, debug::TrapFrame, kprintln, sched
+    arch::x86_64::{apic, tables::Interrupt},
+    debug::TrapFrame,
+    sched,
 };
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(tf: *mut TrapFrame) {
-    without_interrupts(|| unsafe { *tf = sched::tick(*tf) });
+    unsafe { *tf = sched::tick(*tf) };
     apic::eoi();
 }
 
@@ -21,6 +22,6 @@ unsafe extern "C" {
 }
 
 pub fn init() {
-    Interrupt::register_with_stack(0x40, isr_timer_stub, 4);
+    Interrupt::register_without_stack(0x40, isr_timer_stub);
     Interrupt::register_without_stack(0xFF, isr_spurious_stub);
 }

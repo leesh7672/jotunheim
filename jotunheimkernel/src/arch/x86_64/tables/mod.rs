@@ -8,6 +8,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use spin::mutex::Mutex;
+use x86_64::instructions::hlt;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::acpi::cpuid::CpuId;
