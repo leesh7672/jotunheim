@@ -8,5 +8,6 @@
 [BITS 64]
 extern sched_exit_current_trampoline
 global kthread_trampoline
+.text
 kthread_trampoline:
     jmp rax
