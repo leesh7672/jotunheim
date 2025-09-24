@@ -11,25 +11,7 @@ use crate::{
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
-    kprintln!("GP");
-    if cfg!(debug_assertions) {
-        without_interrupts(|| {
-            let last_hit = {
-                let t = unsafe { &mut *tf };
-                breakpoint::on_breakpoint_enter(&mut t.rip)
-            };
-
-            match debug::rsp::serve(tf) {
-                Outcome::Continue => {
-                    breakpoint::on_resume_continue(last_hit);
-                }
-                Outcome::SingleStep => {
-                    breakpoint::on_resume_step(last_hit);
-                }
-                Outcome::KillTask => exit_current(),
-            }
-        })
-    } else {
+    {
         let tf = unsafe { &*tf };
         kprintln!(
             "[#GP] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
@@ -41,31 +23,19 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
             tf.cs as u16,
             tf.ss as u16
         );
-        exit_current()
+    }
+    if cfg!(debug_assertions) {
+        without_interrupts(|| unsafe{
+            breakpoint::insert((*tf).rip);
+        })
+    } else {
+        exit_current();
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
-    kprintln!("PF");
-    if cfg!(debug_assertions) {
-        without_interrupts(|| {
-            let last_hit = {
-                let t = unsafe { &mut *tf };
-                breakpoint::on_breakpoint_enter(&mut t.rip)
-            };
-
-            match debug::rsp::serve(tf) {
-                Outcome::Continue => {
-                    breakpoint::on_resume_continue(last_hit);
-                }
-                Outcome::SingleStep => {
-                    breakpoint::on_resume_step(last_hit);
-                }
-                Outcome::KillTask => exit_current(),
-            }
-        })
-    } else {
+    {
         let tf = unsafe { &*tf };
         kprintln!(
             "[#PF] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
@@ -77,31 +47,19 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
             tf.cs as u16,
             tf.ss as u16
         );
-        exit_current()
+    }
+    if cfg!(debug_assertions) {
+        without_interrupts(|| unsafe{
+            breakpoint::insert((*tf).rip);
+        })
+    } else {
+        exit_current();
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
-    kprintln!("DF");
-    if cfg!(debug_assertions) {
-        without_interrupts(|| {
-            let last_hit = {
-                let t = unsafe { &mut *tf };
-                breakpoint::on_breakpoint_enter(&mut t.rip)
-            };
-
-            match debug::rsp::serve(tf) {
-                Outcome::Continue => {
-                    breakpoint::on_resume_continue(last_hit);
-                }
-                Outcome::SingleStep => {
-                    breakpoint::on_resume_step(last_hit);
-                }
-                Outcome::KillTask => exit_current(),
-            }
-        })
-    } else {
+    {
         let tf = unsafe { &*tf };
         kprintln!(
             "[#DF] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
@@ -113,7 +71,13 @@ pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
             tf.cs as u16,
             tf.ss as u16
         );
-        exit_current()
+    }
+    if cfg!(debug_assertions) {
+        without_interrupts(|| unsafe{
+            breakpoint::insert((*tf).rip);
+        })
+    } else {
+        exit_current();
     }
 }
 unsafe extern "C" {
