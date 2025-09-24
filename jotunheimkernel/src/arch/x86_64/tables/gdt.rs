@@ -108,9 +108,9 @@ where
     F: FnOnce() -> R,
 {
     unsafe {
-        let g = TEMP_GDT.lock();
+        let mut g = TEMP_GDT.lock();
         let gsels = TEMP_SEL.lock().unwrap();
-        let x = g.clone().unwrap();
+        let x = g.as_mut().unwrap();
         x.load_unsafe();
         CS::set_reg(gsels.code);
         DS::set_reg(gsels.data);
@@ -118,7 +118,6 @@ where
         SS::set_reg(gsels.data);
         load_tss(gsels.tss);
         let r = func();
-        drop(x);
         r
     }
 }
