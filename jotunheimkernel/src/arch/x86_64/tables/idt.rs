@@ -62,7 +62,7 @@ fn set_gate_raw(
     let h = handler as usize;
     let entry = IdtEntry {
         offset_low: (h & 0xFFFF) as u16,
-        selector: sel.code.0, // <- use the real CS
+        selector: sel.code.0,
         ist: ist & 0x7,
         type_attr: 0x8E | ((dpl & 0x3) << 5),
         offset_mid: ((h >> 16) & 0xFFFF) as u16,

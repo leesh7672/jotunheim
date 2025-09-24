@@ -1,3 +1,5 @@
+use x86_64::instructions::interrupts::without_interrupts;
+
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 use crate::{
@@ -8,7 +10,7 @@ use crate::{
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(tf: *mut TrapFrame) {
-    unsafe { *tf = sched::tick(*tf) };
+    without_interrupts(|| unsafe { *tf = sched::tick(*tf) });
     apic::eoi();
 }
 
@@ -22,5 +24,5 @@ unsafe extern "C" {
 
 pub fn init() {
     ISR::registrate(0x40, isr_timer_stub);
-    ISR::registrate(0xFF, isr_spurious_stub);
+    ISR::registrate_without_stack(0xFF, isr_spurious_stub);
 }

@@ -6,4 +6,5 @@ rustflags = [
   "-C", "relocation-model=static",
   "-C", "link-arg=-Tkernel.ld",
   "-C", "link-arg=-no-pie",
+  "-C", "no-redzone=true",
 ]

@@ -11,13 +11,12 @@ pub extern "C" fn isr_ud_rust() -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_bad_iret_frame_rust() -> ! {
+pub extern "C" fn isr_bad_iret_frame() -> ! {
     kprintln!("A Bad IRET Frame.");
     loop {
         hlt();
     }
 }
-
 
 unsafe extern "C" {
     unsafe fn isr_ud_stub();

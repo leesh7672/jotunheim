@@ -73,13 +73,15 @@ extern isr_spurious_rust       ; fn() -> ()
 %macro CALL_SYSV 1
     mov     rax, rsp
     and     rax, 15
-    cmp     rax, 8
+    cmp     rax, 0
     je      %%aligned
     sub     rsp, 8
+    cli
     call    %1
     add     rsp, 8
     jmp     %%done
 %%aligned:
+    cli
     call    %1
 %%done:
 %endmacro
@@ -186,6 +188,7 @@ extern isr_spurious_rust       ; fn() -> ()
     mov     rax, [rsp + TF_CS]
     mov     [r12 + 8],  rax
     mov     rax, [rsp + TF_RFLAGS]
+    and     rax, ~(RFLAGS_NT | RFLAGS_RF | RFLAGS_VM) 
     mov     [r12 + 16], rax
 %endmacro
 
