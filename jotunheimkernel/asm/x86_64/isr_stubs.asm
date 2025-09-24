@@ -38,6 +38,9 @@ extern isr_db_rust             ; fn(*mut TrapFrame) -> ()
 extern isr_timer_rust          ; fn() -> ()
 extern isr_spurious_rust       ; fn() -> ()
 
+%define RFLAGS_NT   (1<<14)
+%define RFLAGS_RF   (1<<16)
+%define RFLAGS_VM   (1<<17)
 ; ---------------- TrapFrame field offsets (bytes) ----------------
 %define TF_R15      (0*8)
 %define TF_R14      (1*8)
@@ -70,15 +73,13 @@ extern isr_spurious_rust       ; fn() -> ()
 %macro CALL_SYSV 1
     mov     rax, rsp
     and     rax, 15
-    cmp     rax, 0
+    cmp     rax, 8
     je      %%aligned
     sub     rsp, 8
-    cli
     call    %1
     add     rsp, 8
     jmp     %%done
 %%aligned:
-    cli
     call    %1
 %%done:
 %endmacro
@@ -140,8 +141,8 @@ extern isr_spurious_rust       ; fn() -> ()
 
     ; Synthesize RSP/SS at trap time
     mov     [rsp + TF_RSP], r12   ; interrupted RSP points to RIP slot
+    mov     rax, 0
     mov     ax, ss
-    movzx   eax, ax
     mov     [rsp + TF_SS], rax
 
     ; Vector / Error
@@ -170,8 +171,8 @@ extern isr_spurious_rust       ; fn() -> ()
 
     ; Synthesize RSP/SS
     mov     [rsp + TF_RSP], r12   ; &RIP (skip ERR on return)
+    mov     rax, 0
     mov     ax, ss
-    movzx   eax, ax
     mov     [rsp + TF_SS], rax
 
     mov     qword [rsp + TF_VEC], %1
@@ -185,6 +186,7 @@ extern isr_spurious_rust       ; fn() -> ()
     mov     rax, [rsp + TF_CS]
     mov     [r12 + 8],  rax
     mov     rax, [rsp + TF_RFLAGS]
+    and     rax, ~(RFLAGS_NT | RFLAGS_RF | RFLAGS_VM) 
     mov     [r12 + 16], rax
 %endmacro
 

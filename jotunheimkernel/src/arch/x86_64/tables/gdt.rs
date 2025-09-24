@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box};
 
 use spin::Mutex;
 use x86_64::{
@@ -19,10 +19,10 @@ use x86_64::{
 use crate::{
     acpi::cpuid::CpuId,
     arch::x86_64::tables::{
-        Interrupt, Stack, access_stack,
-        idt::{self},
+        access_stack,
+        idt,
         register_cpu,
-    },
+    }, kprintln,
 };
 
 #[derive(Copy, Clone)]
@@ -51,7 +51,7 @@ pub fn generate(cpu: CpuId) -> GdtLoader {
     }
 }
 
-fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors {
+pub(super) fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors {
     // Build TSS once; it needs 'static for Descriptor::tss_segment
     let tss_ref: &'static mut TaskStateSegment = {
         let mut t = TaskStateSegment::new();
@@ -63,12 +63,10 @@ fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors 
             } else {
                 t.privilege_stack_table[0] = top_raw(&raw const dump[0], dump.len());
             }
-            i_idx += 0;
+            i_idx += 1;
         });
         Box::leak(Box::new(t))
     };
-
-    // Build descriptors directly into the long-lived GDT that we will later load
 
     unsafe {
         let code = (*gdt_ref).append(Descriptor::kernel_code_segment());
@@ -83,11 +81,11 @@ static TEMP_GDT: Mutex<Option<GlobalDescriptorTable>> = Mutex::new(None);
 static TEMP_SEL: Mutex<Option<Selectors>> = Mutex::new(None);
 
 pub fn kernel_cs() -> u16 {
-    TEMP_SEL.lock().unwrap().code.0
+    8
 }
 
 pub fn kernel_ds() -> u16 {
-    TEMP_SEL.lock().unwrap().data.0
+    16
 }
 
 /// Build + load GDT/TSS once; return selectors.
@@ -125,16 +123,19 @@ where
     }
 }
 
-pub(super) fn load_inner(gdtinfo: GdtLoader) -> Selectors {
+pub(crate) fn load_inner(gdtinfo: GdtLoader) -> Selectors {
     unsafe {
-        let gdt = gdtinfo.gdt;
-        gdt.load();
+        gdtinfo.gdt.load();
         let sels = gdtinfo.sels;
         CS::set_reg(sels.code);
         DS::set_reg(sels.data);
         ES::set_reg(sels.data);
         SS::set_reg(sels.data);
         load_tss(sels.tss);
+
+        if sels.code.0 != kernel_cs() || sels.data.0 != kernel_ds() {
+            kprintln!("Error on a segment! It must be {} for code and {} for data.", sels.code.0, sels.data.0);
+        }
         sels
     }
 }

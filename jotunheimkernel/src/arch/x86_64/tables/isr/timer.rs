@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 
+use core::ptr;
+
+use x86_64::instructions::interrupts::without_interrupts;
+
 use crate::{
-    arch::x86_64::{apic, tables::Interrupt},
-    debug::TrapFrame,
-    sched,
+    arch::x86_64::{apic, tables::Interrupt}, debug::TrapFrame, kprintln, sched
 };
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(tf: *mut TrapFrame) {
-    unsafe { *tf = sched::tick(*tf) };
+    without_interrupts(|| unsafe {
+        let ntf = sched::tick(ptr::read(tf));
+        kprintln!("New RSP: {:x}", ntf.rsp);
+        ptr::write(tf, ntf);
+    });
     apic::eoi();
 }
 

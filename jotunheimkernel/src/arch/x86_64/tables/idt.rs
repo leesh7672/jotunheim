@@ -102,13 +102,13 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
     }
 }
 
-static BSP_IDT: Mutex<Option<Idt>> = Mutex::new(None);
+static TEMP_IDT: Mutex<Option<Idt>> = Mutex::new(None);
 
 pub fn load_temp_idt<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    let idt = BSP_IDT.lock().unwrap().0;
+    let idt = TEMP_IDT.lock().unwrap().0;
     unsafe { load_idt_ptr(&idt[0]) };
     let r = f();
     let _ = idt;
@@ -125,7 +125,7 @@ pub fn init(sel: Selectors) {
     });
     let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
     unsafe { load_idt_ptr(idt_ptr) };
-    *BSP_IDT.lock() = Some(*idt);
+    *TEMP_IDT.lock() = Some(*idt);
 }
 
 pub fn ap_init(sel: Selectors) {

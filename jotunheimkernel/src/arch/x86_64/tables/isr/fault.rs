@@ -25,8 +25,21 @@ pub extern "C" fn isr_gp_rust(tf: *mut TrapFrame) {
         );
     }
     if cfg!(debug_assertions) {
-        without_interrupts(|| unsafe{
-            breakpoint::insert((*tf).rip);
+        without_interrupts(|| {
+            let last_hit = {
+                let t = unsafe { &mut *tf };
+                breakpoint::on_breakpoint_enter(&mut t.rip)
+            };
+
+            match debug::rsp::serve(tf) {
+                Outcome::Continue => {
+                    breakpoint::on_resume_continue(last_hit);
+                }
+                Outcome::SingleStep => {
+                    breakpoint::on_resume_step(last_hit);
+                }
+                Outcome::KillTask => exit_current(),
+            }
         })
     } else {
         exit_current();
@@ -49,11 +62,24 @@ pub extern "C" fn isr_pf_rust(tf: *mut TrapFrame) {
         );
     }
     if cfg!(debug_assertions) {
-        without_interrupts(|| unsafe{
-            breakpoint::insert((*tf).rip);
+        without_interrupts(|| {
+            let last_hit = {
+                let t = unsafe { &mut *tf };
+                breakpoint::on_breakpoint_enter(&mut t.rip)
+            };
+
+            match debug::rsp::serve(tf) {
+                Outcome::Continue => {
+                    breakpoint::on_resume_continue(last_hit);
+                }
+                Outcome::SingleStep => {
+                    breakpoint::on_resume_step(last_hit);
+                }
+                Outcome::KillTask => exit_current(),
+            }
         })
     } else {
-        exit_current();
+        exit_current()
     }
 }
 
@@ -73,11 +99,24 @@ pub extern "C" fn isr_df_rust(tf: *mut TrapFrame) {
         );
     }
     if cfg!(debug_assertions) {
-        without_interrupts(|| unsafe{
-            breakpoint::insert((*tf).rip);
+        without_interrupts(|| {
+            let last_hit = {
+                let t = unsafe { &mut *tf };
+                breakpoint::on_breakpoint_enter(&mut t.rip)
+            };
+
+            match debug::rsp::serve(tf) {
+                Outcome::Continue => {
+                    breakpoint::on_resume_continue(last_hit);
+                }
+                Outcome::SingleStep => {
+                    breakpoint::on_resume_step(last_hit);
+                }
+                Outcome::KillTask => exit_current(),
+            }
         })
     } else {
-        exit_current();
+        exit_current()
     }
 }
 unsafe extern "C" {

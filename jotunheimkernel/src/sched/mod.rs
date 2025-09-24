@@ -121,7 +121,7 @@ pub fn init() {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top = ((stack_ptr as usize) & !0xF) as u64;
-    let frame = top - 0x30;
+    let frame = top - 5 * 8;
     unsafe {
         let frame_ptr = frame as *mut u64;
         ptr::write(frame_ptr.add(0), kthread_trampoline as u64);
@@ -130,6 +130,7 @@ pub fn init() {
         ptr::write(frame_ptr.add(3), 0u64);
         ptr::write(frame_ptr.add(4), idle_main as u64);
     };
+    kprintln!("Allocated frame: {:x}", frame);
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
@@ -214,7 +215,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top = ((stack_ptr as usize) & !0xF) as u64;
-    let frame = top - 0x30;
+    let frame = top - 5 * 8;
     unsafe {
         let frame_ptr = frame as *mut u64;
         ptr::write(frame_ptr.add(0), kthread_trampoline as u64);
@@ -223,6 +224,7 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         ptr::write(frame_ptr.add(3), arg as u64);
         ptr::write(frame_ptr.add(4), entry as u64);
     };
+    kprintln!("Allocated frame: {:x}", frame);
     let mut element = Box::new(Task {
         state: TaskState::Ready,
         simd: SimdArea {
