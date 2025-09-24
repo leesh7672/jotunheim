@@ -258,7 +258,7 @@ isr_df_stub:
 ; LAPIC Timer (no error) — minimal edge (no TF). If you want TF-based preemption,
 ; convert to BUILD_TF_NO_ERR 0x20 and pass &TrapFrame instead.
 isr_timer_stub:
-    BUILD_TF_NO_ERR 0x20
+    BUILD_TF_NO_ERR 0x40
     mov     rdi, rsp
     CALL_SYSV isr_timer_rust
     WRITE_BACK_HW

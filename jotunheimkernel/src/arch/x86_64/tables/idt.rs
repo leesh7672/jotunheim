@@ -104,7 +104,7 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
 
 static BSP_IDT: Mutex<Option<Idt>> = Mutex::new(None);
 
-pub fn load_bsp_idt<F, R>(f: F) -> R
+pub fn load_temp_idt<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {

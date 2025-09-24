@@ -14,7 +14,7 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
 use crate::arch::x86_64::tables::gdt::{GdtLoader, load_temp_gdt};
-use crate::arch::x86_64::tables::idt::load_bsp_idt;
+use crate::arch::x86_64::tables::idt::load_temp_idt;
 use crate::debug::TrapFrame;
 use crate::kprintln;
 use crate::sched::exec;
@@ -154,7 +154,7 @@ where
 
 pub fn ap_init() {
     load_temp_gdt(|| {
-        load_bsp_idt(|| {
+        load_temp_idt(|| {
             let id = CpuId::me();
             let mut gdt: Option<GdtLoader> = None;
             let addr = &raw mut gdt as usize;
