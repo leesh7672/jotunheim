@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 
 use spin::Mutex;
 use x86_64::{
@@ -32,7 +32,7 @@ pub struct Selectors {
 
 pub struct GdtLoader {
     sels: Selectors,
-    gdt: *mut GlobalDescriptorTable,
+    gdt: &'static mut GlobalDescriptorTable,
 }
 
 fn top_raw(base: *const u8, len: usize) -> VirtAddr {
@@ -42,7 +42,7 @@ fn top_raw(base: *const u8, len: usize) -> VirtAddr {
 }
 
 pub fn generate(cpu: CpuId) -> GdtLoader {
-    let gdt = Box::into_raw(Box::new(GlobalDescriptorTable::new()));
+    let gdt = Box::leak(Box::new(GlobalDescriptorTable::new()));
     GdtLoader {
         sels: generate_inner(cpu, gdt),
         gdt,
@@ -135,7 +135,7 @@ where
 pub(super) fn load_inner(gdtinfo: GdtLoader) -> Selectors {
     unsafe {
         let gdt = gdtinfo.gdt;
-        (*gdt).load();
+        gdt.load();
         let sels = gdtinfo.sels;
         CS::set_reg(sels.code);
         DS::set_reg(sels.data);

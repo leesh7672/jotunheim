@@ -10,4 +10,9 @@ extern sched_exit_current_trampoline
 global kthread_trampoline
 .text
 kthread_trampoline:
-    jmp rax
+    pop rdi
+    pop rax
+    sub rsp, 8
+    call rax
+    add rsp, 8
+    jmp sched_exit_current_trampoline

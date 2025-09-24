@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 use crate::{
-    arch::x86_64::{apic, tables::ISR}, debug::TrapFrame, kprintln, sched
+    arch::x86_64::{apic, tables::ISR},
+    debug::TrapFrame,
+    sched,
 };
 
 #[unsafe(no_mangle)]

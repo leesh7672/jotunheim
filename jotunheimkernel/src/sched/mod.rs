@@ -4,7 +4,7 @@ pub mod exec;
 pub mod sched_simd;
 
 use core::array::from_mut;
-use core::u32;
+use core::{ptr, u32};
 
 use alloc::boxed::Box;
 use alloc::vec;
@@ -12,13 +12,13 @@ use alloc::vec::Vec;
 use spin::Mutex;
 use x86_64::instructions::hlt;
 use x86_64::instructions::interrupts::without_interrupts;
+use x86_64::registers::segmentation::{Segment, CS};
 
 extern crate alloc;
 
 use crate::arch::native::simd::{restore, save};
 use crate::arch::x86_64::tables::gdt::{kernel_cs, kernel_ds};
 use crate::debug::TrapFrame;
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
@@ -121,6 +121,15 @@ pub fn init() {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top = ((stack_ptr as usize) & !0xF) as u64;
+    let frame = top - 0x30;
+    unsafe {
+        let frame_ptr = frame as *mut u64;
+        ptr::write(frame_ptr.add(0), kthread_trampoline as u64);
+        ptr::write(frame_ptr.add(1), kernel_cs() as u64 & !3);
+        ptr::write(frame_ptr.add(2), 0x202);
+        ptr::write(frame_ptr.add(3), 0u64);
+        ptr::write(frame_ptr.add(4), idle_main as u64);
+    };
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
@@ -134,8 +143,8 @@ pub fn init() {
                 },
                 tf: TrapFrame {
                     rip: kthread_trampoline as u64,
-                    rsp: top - 0x28,
-                    cs: kernel_cs() as u64,
+                    rsp: frame,
+                    cs: kernel_cs() as u64 & !3,
                     rax: idle_main as u64,
                     rflags: 0x202,
                     ss: kernel_ds() as u64,
@@ -206,6 +215,16 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
     let dump = stack.as_mut().dump.as_mut();
     let stack_ptr: *mut u8 = &raw mut dump[dump.len() - 1];
     let top = ((stack_ptr as usize) & !0xF) as u64;
+    let frame = top - 0x30;
+    let cs_now = unsafe { CS::get_reg().0 as u64 } & !3;
+    unsafe {
+        let frame_ptr = frame as *mut u64;
+        ptr::write(frame_ptr.add(0), kthread_trampoline as u64);
+        ptr::write(frame_ptr.add(1), cs_now);
+        ptr::write(frame_ptr.add(2), 0x202);
+        ptr::write(frame_ptr.add(3), arg as u64);
+        ptr::write(frame_ptr.add(4), entry as u64);
+    };
     let mut element = Box::new(Task {
         state: TaskState::Ready,
         simd: SimdArea {
@@ -213,8 +232,8 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         },
         tf: TrapFrame {
             rip: kthread_trampoline as u64,
-            rsp: top - 0x28,
-            cs: kernel_cs() as u64,
+            rsp: frame,
+            cs: cs_now as u64 & !3,
             rax: entry as u64,
             rdi: arg as u64,
             rflags: 0x202,
