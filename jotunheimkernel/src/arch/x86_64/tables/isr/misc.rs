@@ -2,7 +2,7 @@ use x86_64::instructions::hlt;
 
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
-use crate::{arch::x86_64::tables::ISR, kprintln, sched};
+use crate::{arch::x86_64::tables::Interrupt, kprintln, sched};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_ud_rust() -> ! {
@@ -23,5 +23,5 @@ unsafe extern "C" {
 }
 
 pub fn init() {
-    ISR::registrate_without_stack(0x06, isr_ud_stub);
+    Interrupt::register_without_stack(0x06, isr_ud_stub);
 }

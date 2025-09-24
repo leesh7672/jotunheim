@@ -12,7 +12,7 @@ use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
-use crate::arch::x86_64::tables::gdt::{load_temp_gdt, GdtLoader};
+use crate::arch::x86_64::tables::gdt::{GdtLoader, load_temp_gdt};
 use crate::arch::x86_64::tables::idt::load_bsp_idt;
 use crate::debug::TrapFrame;
 use crate::kprintln;
@@ -40,7 +40,7 @@ impl Stack {
     pub fn new() -> Self {
         Self { stacks: Vec::new() }
     }
-    pub fn registrate(&mut self, cpu: CpuId) {
+    pub fn register_cpu(&mut self, cpu: CpuId) {
         self.stacks.insert(0, Box::new(CpuStack::new(cpu)));
     }
     pub fn me(&self, apic: CpuId) -> Option<&Box<CpuStack>> {
@@ -62,36 +62,30 @@ impl CpuStack {
 }
 
 #[derive(Clone, Debug)]
-pub struct ISR {
-    pub stack: Option<Box<Stack>>,
-    pub vector: Option<u16>,
-    pub index: Option<u16>,
-    pub stub: Option<unsafe extern "C" fn()>,
+pub struct Interrupt {
+    pub vector: u16,
+    pub ist: u16,
+    pub stub: unsafe extern "C" fn(),
 }
 
-impl ISR {
-    pub fn registrate(vector: u16, stub: unsafe extern "C" fn()) {
-        Self::new(Some(vector), Some(stub), Some(Box::new(Stack::new())));
+impl Interrupt {
+    pub fn register_with_stack(vector: u16, stub: unsafe extern "C" fn(), ist: u16) {
+        Self::new(vector, stub, ist);
     }
-    pub fn registrate_without_stack(vector: u16, stub: unsafe extern "C" fn()) {
-        Self::new(Some(vector), Some(stub), None);
+    pub fn register_without_stack(vector: u16, stub: unsafe extern "C" fn()) {
+        Self::new(vector, stub, 0);
     }
-    pub fn new(
-        vector: Option<u16>,
-        stub: Option<unsafe extern "C" fn()>,
-        stack: Option<Box<Stack>>,
-    ) {
+    fn new(vector: u16, stub: unsafe extern "C" fn(), ist: u16) {
         without_interrupts(move || {
             loop {
-                let mut guard = TABLES.lock();
+                let mut guard = INTERRUPTS.lock();
                 match guard.clone() {
                     Some(_) => {
                         guard.as_mut().unwrap().insert(
                             0,
                             Box::new(Self {
-                                index: None,
+                                ist: ist,
                                 vector: vector,
-                                stack,
                                 stub,
                             }),
                         );
@@ -107,29 +101,50 @@ impl ISR {
     }
 }
 
-static TABLES: Mutex<Option<Box<Vec<Box<ISR>>>>> = Mutex::new(None);
+static INTERRUPTS: Mutex<Option<Box<Vec<Box<Interrupt>>>>> = Mutex::new(None);
+static STACKS: Mutex<Option<Box<Vec<Box<Stack>>>>> = Mutex::new(None);
 
 pub fn init() {
-    let mut guard = TABLES.lock();
-    if guard.is_none() {
-        *guard = Some(Box::new(Vec::new()));
+    {
+        let mut guard = INTERRUPTS.lock();
+        if guard.is_none() {
+            *guard = Some(Box::new(Vec::new()));
+        }
+    }
+    {
+        let mut guard = STACKS.lock();
+        if guard.is_none() {
+            let mut stacks = Box::new(Vec::new());
+            for _ in 0..8{
+                stacks.insert(0, Box::new(Stack::new()));
+            }
+            *guard = Some(stacks)
+        }
     }
 }
 
-pub fn registrate(cpu: CpuId) {
-    access_mut(|e| {
-        if let Some(stack) = e.stack.as_mut() {
-            stack.registrate(cpu);
-        }
+pub fn register_cpu(cpu: CpuId) {
+    access_stack(|e| {
+        e.register_cpu(cpu);
     });
 }
-
-pub fn access_mut<F>(mut func: F)
+pub fn access_interrupt_mut<F>(mut func: F)
 where
-    F: FnMut(&mut ISR) -> (),
+    F: FnMut(&mut Interrupt) -> (),
 {
     init();
-    let mut guard = TABLES.lock();
+    let mut guard = INTERRUPTS.lock();
+    let iter = guard.as_mut().unwrap().iter_mut();
+    for e in iter {
+        func(e);
+    }
+}
+pub fn access_stack<F>(mut func: F)
+where
+    F: FnMut(&mut Stack) -> (),
+{
+    init();
+    let mut guard = STACKS.lock();
     let iter = guard.as_mut().unwrap().iter_mut();
     for e in iter {
         func(e);
@@ -144,7 +159,7 @@ pub fn ap_init() {
             let addr = &raw mut gdt as usize;
             exec::submit(move || unsafe {
                 kprintln!("A");
-                registrate(id);
+                register_cpu(id);
                 let gdt: &mut Option<GdtLoader> = &mut *(addr as *mut Option<GdtLoader>);
                 *gdt = Some(gdt::generate(id));
             })

@@ -3,7 +3,7 @@
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{
-    arch::x86_64::tables::ISR,
+    arch::x86_64::tables::Interrupt,
     debug::{self, Outcome, TrapFrame, breakpoint},
     kprintln,
     sched::exit_current,
@@ -122,7 +122,7 @@ unsafe extern "C" {
     unsafe fn isr_df_stub();
 }
 pub fn init() {
-    ISR::registrate(0x0D, isr_gp_stub);
-    ISR::registrate(0x0E, isr_pf_stub);
-    ISR::registrate(0x08, isr_df_stub);
+    Interrupt::register_with_stack(0x0D, isr_gp_stub, 1);
+    Interrupt::register_with_stack(0x0E, isr_pf_stub, 1);
+    Interrupt::register_with_stack(0x08, isr_df_stub, 2);
 }

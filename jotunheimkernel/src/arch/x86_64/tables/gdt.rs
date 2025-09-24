@@ -19,8 +19,10 @@ use x86_64::{
 use crate::{
     acpi::cpuid::CpuId,
     arch::x86_64::tables::{
-        idt::{self}, registrate, Stack, ISR
-    }
+        Interrupt, Stack, access_stack,
+        idt::{self},
+        register_cpu,
+    },
 };
 
 #[derive(Copy, Clone)]
@@ -53,22 +55,15 @@ fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors 
     // Build TSS once; it needs 'static for Descriptor::tss_segment
     let tss_ref: &'static mut TaskStateSegment = {
         let mut t = TaskStateSegment::new();
-        let mut i = 0;
-        let mut p = 0;
-        super::access_mut(|isr| {
-            if let Some(stack) = &isr.stack {
-                let stack = stack.me(cpu).unwrap();
-                if let (Some(_), Some(_)) = (isr.vector, isr.stub) {
-                    isr.index = Some(i);
-                    t.interrupt_stack_table[i as usize] =
-                        top_raw(&raw const stack.dump.as_ref()[0], stack.dump.len() - 1);
-                    i += 1;
-                } else {
-                    t.privilege_stack_table[p as usize] =
-                        top_raw(&raw const stack.dump.as_ref()[0], stack.dump.len() - 1);
-                    p += 1;
-                }
+        let mut i_idx = 0;
+        access_stack(|e| {
+            let dump = &e.me(cpu).unwrap().dump;
+            if i_idx > 0 {
+                t.interrupt_stack_table[i_idx - 1] = top_raw(&raw const dump[0], dump.len());
+            } else {
+                t.privilege_stack_table[0] = top_raw(&raw const dump[0], dump.len());
             }
+            i_idx += 0;
         });
         Box::leak(Box::new(t))
     };
@@ -87,26 +82,24 @@ fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) -> Selectors 
 static TEMP_GDT: Mutex<Option<GlobalDescriptorTable>> = Mutex::new(None);
 static TEMP_SEL: Mutex<Option<Selectors>> = Mutex::new(None);
 
-pub fn kernel_cs() -> u16{
+pub fn kernel_cs() -> u16 {
     TEMP_SEL.lock().unwrap().code.0
 }
 
-pub fn kernel_ds() -> u16{
+pub fn kernel_ds() -> u16 {
     TEMP_SEL.lock().unwrap().data.0
 }
 
-
 /// Build + load GDT/TSS once; return selectors.
 pub fn init() -> Selectors {
-    ISR::new(None, None, Some(Box::new(Stack::new())));
-    registrate(CpuId::dummy());
+    register_cpu(CpuId::dummy());
     let mut gdt = GlobalDescriptorTable::new();
     let sel = Some(generate_inner(CpuId::dummy(), &mut gdt));
     *TEMP_SEL.lock() = sel;
     *TEMP_GDT.lock() = Some(gdt);
     load_temp_gdt(|| {
         idt::init(sel.unwrap());
-        registrate(CpuId::me());
+        register_cpu(CpuId::me());
         let gdtinfo = generate(CpuId::me());
         load_inner(gdtinfo)
     })

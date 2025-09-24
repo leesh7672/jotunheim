@@ -5,7 +5,7 @@
 use alloc::boxed::Box;
 use spin::Mutex;
 
-use crate::arch::x86_64::tables::access_mut;
+use crate::arch::x86_64::tables::access_interrupt_mut;
 use crate::arch::x86_64::tables::gdt::Selectors;
 
 use core::mem::size_of;
@@ -120,15 +120,8 @@ pub fn init(sel: Selectors) {
     for v in 0..=255usize {
         idt.set_gate(v, isr_default_stub, 0, 0, sel);
     }
-    access_mut(|isr| {
-        if let (Some(vec), Some(stub)) = (isr.vector, isr.stub) {
-            let index = match isr.index {
-                Some(index) => index,
-                None => 0,
-            };
-            idt.set_gate(vec as usize, stub, index as u8, 0, sel);
-        } else {
-        }
+    access_interrupt_mut(|isr| {
+        idt.set_gate(isr.vector as usize, isr.stub, isr.ist as u8, 0, sel);
     });
     let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
     unsafe { load_idt_ptr(idt_ptr) };
@@ -140,15 +133,8 @@ pub fn ap_init(sel: Selectors) {
     for v in 0..=255usize {
         idt.set_gate(v, isr_default_stub, 0, 0, sel);
     }
-    access_mut(|isr| {
-        if let (Some(vec), Some(stub)) = (isr.vector, isr.stub) {
-            let index = match isr.index {
-                Some(index) => index,
-                None => 0,
-            };
-            idt.set_gate(vec as usize, stub, index as u8, 0, sel);
-        } else {
-        }
+    access_interrupt_mut(|isr| {
+        idt.set_gate(isr.vector as usize, isr.stub, isr.ist as u8, 0, sel);
     });
     let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
     unsafe { load_idt_ptr(idt_ptr) };
