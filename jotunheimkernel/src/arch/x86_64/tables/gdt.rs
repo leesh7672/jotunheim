@@ -25,6 +25,10 @@ use crate::{
     }, kprintln,
 };
 
+unsafe extern "C"{
+    unsafe fn far_jump();
+}
+
 #[derive(Copy, Clone)]
 pub struct Selectors {
     pub code: SegmentSelector,
@@ -117,6 +121,7 @@ where
         ES::set_reg(gsels.data);
         SS::set_reg(gsels.data);
         load_tss(gsels.tss);
+        far_jump();
         let r = func();
         r
     }
@@ -135,6 +140,7 @@ pub(crate) fn load_inner(gdtinfo: GdtLoader) -> Selectors {
         if sels.code.0 != kernel_cs() || sels.data.0 != kernel_ds() {
             kprintln!("Error on a segment! It must be {} for code and {} for data.", sels.code.0, sels.data.0);
         }
+        far_jump();
         sels
     }
 }
