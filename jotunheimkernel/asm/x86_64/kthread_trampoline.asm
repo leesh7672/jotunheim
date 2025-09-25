@@ -8,11 +8,13 @@
 [BITS 64]
 extern sched_exit_current_trampoline
 global kthread_trampoline
-.text
+default rel
+section .text
 kthread_trampoline:
     pop rdi
     pop rax
     sub rsp, 8
     call rax
     add rsp, 8
-    jmp sched_exit_current_trampoline
+    mov rax, sched_exit_current_trampoline
+    jmp rax

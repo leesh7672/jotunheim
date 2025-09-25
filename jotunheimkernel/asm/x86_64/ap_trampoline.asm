@@ -12,8 +12,6 @@ global _ap_tramp_apboot_ptr64
 section .text
 _ap_tramp_start:
 [bits 16]
-section .text
-_ap_tramp_start:
 
 start16:
     cli
