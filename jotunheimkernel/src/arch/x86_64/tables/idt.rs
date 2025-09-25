@@ -2,15 +2,11 @@
 // Copyright (C) 2025 The Jotunheim Project
 #![allow(clippy::missing_safety_doc)]
 
-use alloc::boxed::Box;
-use spin::Mutex;
 
 use crate::arch::x86_64::tables::access_interrupt_mut;
-use crate::arch::x86_64::tables::gdt::Selectors;
-use crate::kprintln;
 
 use core::mem::size_of;
-use core::ptr::{addr_of, addr_of_mut};
+use core::ptr::addr_of_mut;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]

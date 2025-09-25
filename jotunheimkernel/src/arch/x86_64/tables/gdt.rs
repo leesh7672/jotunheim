@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: JOSSL-1.0
 // Copyright (C) 2025 The Jotunheim Project
 
-use alloc::{boxed::Box};
+use alloc::boxed::Box;
 
 use spin::Mutex;
 use x86_64::{
@@ -18,14 +18,11 @@ use x86_64::{
 
 use crate::{
     acpi::cpuid::CpuId,
-    arch::x86_64::tables::{
-        access_stack,
-        idt,
-        register_cpu,
-    }, kprintln,
+    arch::x86_64::tables::{access_stack, idt, register_cpu},
+    kprintln,
 };
 
-unsafe extern "C"{
+unsafe extern "C" {
     unsafe fn far_jump();
 }
 
@@ -140,7 +137,11 @@ pub(crate) fn load_inner(gdtinfo: GdtLoader) -> Selectors {
         load_tss(sels.tss);
 
         if sels.code.0 != kernel_cs() || sels.data.0 != kernel_ds() {
-            kprintln!("Error on a segment! It must be {} for code and {} for data.", sels.code.0, sels.data.0);
+            kprintln!(
+                "Error on a segment! It must be {} for code and {} for data.",
+                sels.code.0,
+                sels.data.0
+            );
         }
         far_jump();
         sels

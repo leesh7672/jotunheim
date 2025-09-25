@@ -6,7 +6,6 @@
 use core::fmt::{self, Write};
 use spin::Mutex;
 use uart_16550::SerialPort;
-use x86_64::instructions::interrupts::without_interrupts;
 
 /// Global COM1 handle. It's inside a Mutex to serialize writers.
 /// We store it as Option so the printing path can cheaply no-op if not inited.

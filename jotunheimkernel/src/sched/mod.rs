@@ -3,7 +3,6 @@
 pub mod exec;
 pub mod sched_simd;
 
-use core::array::from_mut;
 use core::{ptr, u32};
 
 use alloc::boxed::Box;
@@ -18,7 +17,6 @@ extern crate alloc;
 use crate::arch::native::simd::{restore, save};
 use crate::arch::x86_64::tables::gdt::{kernel_cs, kernel_ds};
 use crate::debug::TrapFrame;
-use crate::kprintln;
 use crate::sched::sched_simd::SimdArea;
 
 /* ------------------------------- Types & consts ------------------------------- */
