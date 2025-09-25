@@ -2,7 +2,7 @@
 // Copyright (C) 2025 The Jotunheim Project
 use crate::{
     arch::x86_64::tables::Interrupt,
-    debug::{self, Outcome, TrapFrame, breakpoint},
+    debug::{self, breakpoint, Outcome, TrapFrame},
 };
 use x86_64::instructions::interrupts::without_interrupts;
 
@@ -58,6 +58,6 @@ unsafe extern "C" {
 }
 
 pub fn init() {
-    Interrupt::register_without_stack(0x01, isr_db_stub);
+    Interrupt::register_with_stack(0x01, isr_db_stub, 1);
     Interrupt::register_without_stack(0x03, isr_bp_stub);
 }

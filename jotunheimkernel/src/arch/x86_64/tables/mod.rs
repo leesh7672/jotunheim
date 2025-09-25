@@ -14,14 +14,25 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
 use crate::arch::x86_64::tables::gdt::{GdtLoader, load_temp_gdt};
-use crate::arch::x86_64::tables::idt::load_temp_idt;
+use crate::arch::x86_64::tables::idt::load_idt;
 use crate::debug::TrapFrame;
 use crate::kprintln;
 use crate::sched::exec;
 
 // ---------- Rust ISR targets that NASM stubs call ----------
 #[unsafe(no_mangle)]
-pub extern "C" fn isr_default_rust(_tf: &mut TrapFrame) {
+pub extern "C" fn isr_default_rust(tf: &mut TrapFrame) {
+    let tf = unsafe { &*tf };
+    kprintln!(
+        "[#INT] vec={} err={:#x}\n  rip={:#018x} rsp={:#018x} rflags={:#018x}\n  cs={:#06x} ss={:#06x}",
+        tf.vec,
+        tf.err,
+        tf.rip,
+        tf.rsp,
+        tf.rflags,
+        tf.cs as u16,
+        tf.ss as u16
+    );
     apic::eoi();
 }
 
@@ -116,7 +127,7 @@ pub fn init() {
         let mut guard = STACKS.lock();
         if guard.is_none() {
             let mut stacks = Box::new(Vec::new());
-            for _ in 0..8{
+            for _ in 0..8 {
                 stacks.insert(0, Box::new(Stack::new()));
             }
             *guard = Some(stacks)
@@ -154,19 +165,18 @@ where
 
 pub fn ap_init() {
     load_temp_gdt(|| {
-        load_temp_idt(|| {
-            let id = CpuId::me();
-            let mut gdt: Option<GdtLoader> = None;
-            let addr = &raw mut gdt as usize;
-            exec::submit(move || unsafe {
-                kprintln!("A");
-                register_cpu(id);
-                let gdt: &mut Option<GdtLoader> = &mut *(addr as *mut Option<GdtLoader>);
-                *gdt = Some(gdt::generate(id));
-            })
-            .unwrap();
-            while gdt.is_none() {}
-            idt::ap_init(gdt::load_inner(gdt.unwrap()));
+        load_idt();
+        let id = CpuId::me();
+        let mut gdt: Option<GdtLoader> = None;
+        let addr = &raw mut gdt as usize;
+        exec::submit(move || unsafe {
+            kprintln!("A");
+            register_cpu(id);
+            let gdt: &mut Option<GdtLoader> = &mut *(addr as *mut Option<GdtLoader>);
+            *gdt = Some(gdt::generate(id));
         })
+        .unwrap();
+        while gdt.is_none() {}
+        gdt::load_inner(gdt.unwrap());
     })
 }

@@ -41,6 +41,8 @@ extern isr_spurious_rust       ; fn() -> ()
 %define RFLAGS_NT   (1<<14)
 %define RFLAGS_RF   (1<<16)
 %define RFLAGS_VM   (1<<17)
+%define RFLAGS_TF   (1<<8)
+
 ; ---------------- TrapFrame field offsets (bytes) ----------------
 %define TF_R15      (0*8)
 %define TF_R14      (1*8)
@@ -71,16 +73,19 @@ extern isr_spurious_rust       ; fn() -> ()
 ; SysV call alignment helper:
 ; Before CALL: RSP%16 must be 8 (so inside callee it's 16).
 %macro CALL_SYSV 1
-    mov     rax, rsp
-    and     rax, 15
-    cmp     rax, 8
+    ; Ensure caller RSP % 16 == 8 (so callee sees 16)
+    mov     rdx, rsp
+    and     rdx, 15
+    cmp     rdx, 8
     je      %%aligned
     sub     rsp, 8
-    call    %1
+    lea     rax, [rel %1] 
+    call    rax
     add     rsp, 8
     jmp     %%done
 %%aligned:
-    call    %1
+    lea     rax, [rel %1] 
+    call    rax
 %%done:
 %endmacro
 
@@ -120,7 +125,6 @@ extern isr_spurious_rust       ; fn() -> ()
     mov  rcx, [rsp + TF_RCX]
     mov  rbx, [rsp + TF_RBX]
     mov  rax, [rsp + TF_RAX]
-    mov  rsp, [rsp + TF_RSP] 
 %endmacro
 
 ; ----- NO-ERROR exceptions: entry stack = [RIP][CS][RFLAGS] -----
@@ -186,7 +190,7 @@ extern isr_spurious_rust       ; fn() -> ()
     mov     rax, [rsp + TF_CS]
     mov     [r12 + 8],  rax
     mov     rax, [rsp + TF_RFLAGS]
-    and     rax, ~(RFLAGS_NT | RFLAGS_RF | RFLAGS_VM) 
+    and rax, ~(RFLAGS_TF | RFLAGS_NT | RFLAGS_RF | RFLAGS_VM)
     mov     [r12 + 16], rax
 %endmacro
 
@@ -201,6 +205,7 @@ isr_default_stub:
     CALL_SYSV isr_default_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP] 
     iretq
 
 ; #BP (3) — no error
@@ -210,6 +215,7 @@ isr_bp_stub:
     CALL_SYSV isr_bp_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP] 
     iretq
 
 ; #DB (1) — no error
@@ -219,6 +225,7 @@ isr_db_stub:
     CALL_SYSV isr_db_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP] 
     iretq
 
 ; #UD (6) — no error
@@ -228,6 +235,7 @@ isr_ud_stub:
     CALL_SYSV isr_ud_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP] 
     iretq
 
 ; #GP (13) — with error
@@ -237,6 +245,7 @@ isr_gp_stub:
     CALL_SYSV isr_gp_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP] 
     iretq
 
 ; #PF (14) — with error
@@ -246,6 +255,7 @@ isr_pf_stub:
     CALL_SYSV isr_pf_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP] 
     iretq
 
 ; #DF (8) — with error (hardware pushes 0)
@@ -255,16 +265,18 @@ isr_df_stub:
     CALL_SYSV isr_df_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP] 
     iretq
     
 ; LAPIC Timer (no error) — minimal edge (no TF). If you want TF-based preemption,
-; convert to BUILD_TF_NO_ERR 0x20 and pass &TrapFrame instead.
+; convert to BUILD_TF_NO_ERR 0x40 and pass &TrapFrame instead.
 isr_timer_stub:
     BUILD_TF_NO_ERR 0x40
     mov     rdi, rsp
     CALL_SYSV isr_timer_rust
     WRITE_BACK_HW
     RESTORE_GPRS_FROM_TF
+    mov  rsp, [rsp + TF_RSP]
     iretq
 
 ; LAPIC Spurious (no error)

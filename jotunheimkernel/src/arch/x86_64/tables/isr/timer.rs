@@ -6,14 +6,13 @@ use core::ptr;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{
-    arch::x86_64::{apic, tables::Interrupt}, debug::TrapFrame, kprintln, sched
+    arch::x86_64::{apic, tables::Interrupt}, debug::TrapFrame, sched
 };
 
 #[unsafe(no_mangle)]
 pub extern "C" fn isr_timer_rust(tf: *mut TrapFrame) {
     without_interrupts(|| unsafe {
         let ntf = sched::tick(ptr::read(tf));
-        kprintln!("New RSP: {:x}", ntf.rsp);
         ptr::write(tf, ntf);
     });
     apic::eoi();

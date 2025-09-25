@@ -63,7 +63,9 @@ pub(super) fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) ->
         access_stack(|e| {
             let dump = &e.me(cpu).unwrap().dump;
             if i_idx > 0 {
-                t.interrupt_stack_table[i_idx - 1] = top_raw(&raw const dump[0], dump.len());
+                let top = top_raw(&raw const dump[0], dump.len());
+                t.interrupt_stack_table[i_idx - 1] = top;
+                kprintln!("IST TOP:{:x}", top.as_ptr::<u8>() as u64);
             } else {
                 t.privilege_stack_table[0] = top_raw(&raw const dump[0], dump.len());
             }
@@ -100,7 +102,7 @@ pub fn init() -> Selectors {
     *TEMP_SEL.lock() = sel;
     *TEMP_GDT.lock() = Some(gdt);
     load_temp_gdt(|| {
-        idt::init(sel.unwrap());
+        idt::init();
         register_cpu(CpuId::me());
         let gdtinfo = generate(CpuId::me());
         load_inner(gdtinfo)

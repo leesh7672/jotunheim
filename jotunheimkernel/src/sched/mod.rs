@@ -130,7 +130,6 @@ pub fn init() {
         ptr::write(frame_ptr.add(3), 0u64);
         ptr::write(frame_ptr.add(4), idle_main as u64);
     };
-    kprintln!("Allocated frame: {:x}", frame);
     with_rq_locked(|rq| {
         let id = rq.next_id;
         rq.next_id += 1;
@@ -224,7 +223,6 @@ fn spawn_kthread(entry: extern "C" fn(usize) -> !, arg: usize) -> TaskId {
         ptr::write(frame_ptr.add(3), arg as u64);
         ptr::write(frame_ptr.add(4), entry as u64);
     };
-    kprintln!("Allocated frame: {:x}", frame);
     let mut element = Box::new(Task {
         state: TaskState::Ready,
         simd: SimdArea {

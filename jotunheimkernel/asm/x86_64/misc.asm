@@ -4,6 +4,7 @@
 default rel
 section .text
 global far_jump
+global disable_flags
 
 far_jump:
     ; Far jump to the same CPL with CS=0x8

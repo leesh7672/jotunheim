@@ -19,7 +19,7 @@ pub fn init(boot: &BootInfo) {
     simd::init();
     apic::early_init();
     isr::init();
-    idt::init(gdt::init());
+    gdt::init();
     unsafe {
         ioapic::mask_all();
     }

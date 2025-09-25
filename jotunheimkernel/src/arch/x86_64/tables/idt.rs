@@ -7,6 +7,7 @@ use spin::Mutex;
 
 use crate::arch::x86_64::tables::access_interrupt_mut;
 use crate::arch::x86_64::tables::gdt::Selectors;
+use crate::kprintln;
 
 use core::mem::size_of;
 use core::ptr::{addr_of, addr_of_mut};
@@ -57,12 +58,11 @@ fn set_gate_raw(
     handler: unsafe extern "C" fn(),
     ist: u8,
     dpl: u8,
-    sel: Selectors,
 ) {
     let h = handler as usize;
     let entry = IdtEntry {
         offset_low: (h & 0xFFFF) as u16,
-        selector: sel.code.0,
+        selector: 0x8,
         ist: ist & 0x7,
         type_attr: 0x8E | ((dpl & 0x3) << 5),
         offset_mid: ((h >> 16) & 0xFFFF) as u16,
@@ -75,25 +75,18 @@ fn set_gate_raw(
 }
 
 impl Idt {
-    fn set_gate(
-        &mut self,
-        idx: usize,
-        handler: unsafe extern "C" fn(),
-        ist: u8,
-        dpl: u8,
-        sel: Selectors,
-    ) {
+    fn set_gate(&mut self, idx: usize, handler: unsafe extern "C" fn(), ist: u8, dpl: u8) {
         let base: *mut IdtEntry = addr_of_mut!(self.0) as *mut IdtEntry;
-        set_gate_raw(base, idx, handler, ist, dpl, sel);
+        set_gate_raw(base, idx, handler, ist, dpl);
     }
 }
 
-unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
-    let idtr = Idtr {
-        limit: (size_of::<IdtEntry>() * 256 - 1) as u16,
-        base: ptr as u64,
-    };
+unsafe fn load_idt_ptr(ptr: *const Idt) {
     unsafe {
+        let idtr = Idtr {
+            limit: (size_of::<IdtEntry>() * 256 - 1) as u16,
+            base: &raw const (*ptr).0[0] as u64,
+        };
         core::arch::asm!(
             "lidt [{0}]",
             in(reg) &idtr,
@@ -102,40 +95,22 @@ unsafe fn load_idt_ptr(ptr: *const IdtEntry) {
     }
 }
 
-static TEMP_IDT: Mutex<Option<Idt>> = Mutex::new(None);
+static mut IDT: Idt = Idt([empty_entry(); 256]);
 
-pub fn load_temp_idt<F, R>(f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let idt = TEMP_IDT.lock().unwrap().0;
-    unsafe { load_idt_ptr(&idt[0]) };
-    let r = f();
-    let _ = idt;
-    r
+pub fn load_idt() {
+    unsafe { load_idt_ptr(&raw const IDT) };
 }
 
-pub fn init(sel: Selectors) {
-    let idt = Box::leak(Box::new(Idt([empty_entry(); 256])));
+pub fn init() {
+    let mut idt = Idt([empty_entry(); 256]);
     for v in 0..=255usize {
-        idt.set_gate(v, isr_default_stub, 0, 0, sel);
+        idt.set_gate(v, isr_default_stub, 0, 0);
     }
     access_interrupt_mut(|isr| {
-        idt.set_gate(isr.vector as usize, isr.stub, isr.ist as u8, 0, sel);
+        idt.set_gate(isr.vector as usize, isr.stub, isr.ist as u8, 0);
     });
-    let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
-    unsafe { load_idt_ptr(idt_ptr) };
-    *TEMP_IDT.lock() = Some(*idt);
-}
-
-pub fn ap_init(sel: Selectors) {
-    let idt = Box::leak(Box::new(Idt([empty_entry(); 256])));
-    for v in 0..=255usize {
-        idt.set_gate(v, isr_default_stub, 0, 0, sel);
+    unsafe {
+        IDT = idt;
+        load_idt_ptr(&raw const IDT);
     }
-    access_interrupt_mut(|isr| {
-        idt.set_gate(isr.vector as usize, isr.stub, isr.ist as u8, 0, sel);
-    });
-    let idt_ptr: *const IdtEntry = addr_of!(idt.0) as *const IdtEntry;
-    unsafe { load_idt_ptr(idt_ptr) };
 }
