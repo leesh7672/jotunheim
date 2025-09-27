@@ -76,7 +76,6 @@ extern isr_spurious_rust       ; fn() -> ()
     ; Ensure caller RSP % 16 == 8 (so callee sees 16)
     push    rbp
     mov     rbp, rsp
-    sub     rsp, 128
     mov     rdx, rsp
     and     rdx, 15
     cmp     rdx, 8
