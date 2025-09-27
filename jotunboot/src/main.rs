@@ -3,10 +3,13 @@
 #![no_std]
 #![no_main]
 #![allow(unsafe_op_in_unsafe_fn)]
+#![feature(alloc_error_handler)]
 
 extern crate alloc;
 
 mod simd;
+
+use core::alloc::Layout;
 
 use alloc::vec::Vec;
 use core::{arch::asm, ptr};
@@ -40,6 +43,11 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
             asm!("hlt");
         }
     }
+}
+
+#[alloc_error_handler]
+fn oom(_layout: Layout) -> ! {
+    loop {}
 }
 
 /* =========================== Kernel-facing ABI =========================== */
@@ -83,7 +91,6 @@ pub struct BootInfo {
 
 /* ========================== Serial (QEMU stdio) ========================== */
 
-
 unsafe fn serial_init() {
     const COM1: u16 = 0x3F8;
     asm!("out dx, al", in("dx") COM1 + 1, in("al") 0u8);
@@ -123,7 +130,6 @@ macro_rules! slog {
 }
 
 /* ============================ Small utilities ============================ */
-
 
 fn log_step(msg: &str) {
     info!("[step] {msg}");
@@ -453,7 +459,6 @@ fn build_pagetables_exec(
 }
 
 /* ========================= Low trampoline (blob) ========================= */
-
 
 unsafe fn enter_kernel_via_trampoline(
     tramp_page: core::ptr::NonNull<u8>,

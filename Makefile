@@ -3,7 +3,7 @@
 # Copyright (C) 2025 The Jotunheim Project
 # ===== Toolchains / versions =====
 RUSTUP           ?= rustup
-TOOLCHAIN        ?= stable
+TOOLCHAIN        ?= nightly-2025-09-25
 PROFILE          ?= debug                # debug|release
 FEATURES         ?=
 CARGO            ?= cargo
