@@ -18,7 +18,7 @@ use x86_64::{
 
 use crate::{
     acpi::cpuid::CpuId,
-    arch::x86_64::tables::{access_stack, idt, register_cpu},
+    arch::x86_64::tables::{Stack, find_or_allocate_stack_for_cpu, idt, register_cpu},
     kprintln,
 };
 
@@ -57,8 +57,9 @@ pub(super) fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) ->
     let tss_ref: &'static mut TaskStateSegment = {
         let mut t = TaskStateSegment::new();
         let mut i_idx = 0;
-        access_stack(|e| {
-            let dump = &e.me(cpu).unwrap().dump;
+        let stack = find_or_allocate_stack_for_cpu(cpu);
+        for e in stack.stacks.iter() {
+            let dump = &e.dump;
             if i_idx > 0 {
                 let top = top_raw(&raw const dump[0], dump.len());
                 t.interrupt_stack_table[i_idx - 1] = top;
@@ -67,7 +68,7 @@ pub(super) fn generate_inner(cpu: CpuId, gdt_ref: *mut GlobalDescriptorTable) ->
                 t.privilege_stack_table[0] = top_raw(&raw const dump[0], dump.len());
             }
             i_idx += 1;
-        });
+        }
         Box::leak(Box::new(t))
     };
 

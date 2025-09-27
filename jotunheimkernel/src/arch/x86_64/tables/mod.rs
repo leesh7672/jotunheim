@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::acpi::cpuid::CpuId;
+use crate::acpi::cpuid::{self, CpuId};
 use crate::arch::x86_64::apic;
 use crate::arch::x86_64::tables::gdt::{GdtLoader, load_temp_gdt};
 use crate::arch::x86_64::tables::idt::load_idt;
@@ -37,38 +37,30 @@ pub extern "C" fn isr_default_rust(tf: &mut TrapFrame) {
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct CpuStack {
+pub struct Slot {
     pub dump: Box<[u8]>,
-    cpu: CpuId,
 }
 
 #[derive(Clone, Debug)]
 pub struct Stack {
-    stacks: Vec<Box<CpuStack>>,
+    stacks: Vec<Box<Slot>>,
+    cpu: CpuId,
 }
 
 impl Stack {
-    pub fn new() -> Self {
-        Self { stacks: Vec::new() }
-    }
-    pub fn register_cpu(&mut self, cpu: CpuId) {
-        self.stacks.insert(0, Box::new(CpuStack::new(cpu)));
-    }
-    pub fn me(&self, apic: CpuId) -> Option<&Box<CpuStack>> {
-        for stack in &self.stacks {
-            if stack.cpu == apic {
-                return Some(stack);
-            }
+    pub fn new(cpu: CpuId) -> Self {
+        Self {
+            stacks: vec![Box::new(Slot::new()); 8],
+            cpu,
         }
-        return None;
     }
 }
 
-impl CpuStack {
-    pub fn new(cpu: CpuId) -> Self {
+impl Slot {
+    pub fn new() -> Self {
         const STACK_SIZE: usize = 0x4_0000;
         let dump = vec![0u8; STACK_SIZE].into_boxed_slice();
-        Self { dump, cpu }
+        Self { dump }
     }
 }
 
@@ -125,19 +117,17 @@ pub fn init() {
     {
         let mut guard = STACKS.lock();
         if guard.is_none() {
-            let mut stacks = Box::new(Vec::new());
-            for _ in 0..8 {
-                stacks.insert(0, Box::new(Stack::new()));
-            }
+            let stacks = Box::new(Vec::new());
             *guard = Some(stacks)
         }
     }
 }
 
-pub fn register_cpu(cpu: CpuId) {
-    access_stack(|e| {
-        e.register_cpu(cpu);
-    });
+pub fn register_cpu(cpu: CpuId) -> Box<Stack> {
+    let mut guard = STACKS.lock();
+    let stack = Stack::new(cpu);
+    guard.as_mut().unwrap().insert(0, Box::new(stack));
+    guard.as_mut().unwrap()[0].clone()
 }
 pub fn access_interrupt_mut<F>(mut func: F)
 where
@@ -150,16 +140,16 @@ where
         func(e);
     }
 }
-pub fn access_stack<F>(mut func: F)
-where
-    F: FnMut(&mut Stack) -> (),
-{
+pub fn find_or_allocate_stack_for_cpu(cpu: CpuId) -> Box<Stack> {
     init();
     let mut guard = STACKS.lock();
-    let iter = guard.as_mut().unwrap().iter_mut();
+    let iter = guard.as_mut().unwrap().iter();
     for e in iter {
-        func(e);
+        if e.cpu == cpu {
+            return e.clone();
+        }
     }
+    return register_cpu(cpu);
 }
 
 pub fn ap_init() {
