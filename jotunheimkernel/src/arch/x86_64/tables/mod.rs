@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::acpi::cpuid::{self, CpuId};
+use crate::acpi::cpuid::CpuId;
 use crate::arch::x86_64::apic;
 use crate::arch::x86_64::tables::gdt::{GdtLoader, load_temp_gdt};
 use crate::arch::x86_64::tables::idt::load_idt;
