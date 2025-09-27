@@ -74,21 +74,20 @@ extern isr_spurious_rust       ; fn() -> ()
 ; Before CALL: RSP%16 must be 8 (so inside callee it's 16).
 %macro CALL_SYSV 1
     ; Ensure caller RSP % 16 == 8 (so callee sees 16)
+    push    rbp
+    mov     rbp, rsp
     sub     rsp, 128
     mov     rdx, rsp
     and     rdx, 15
     cmp     rdx, 8
     je      %%aligned
     sub     rsp, 8
-    lea     rax, [rel %1] 
-    call    rax
-    add     rsp, 8
-    jmp     %%done
 %%aligned:
     lea     rax, [rel %1] 
     call    rax
 %%done:
-    add     rsp, 128
+    mov     rsp, rbp
+    pop     rbp
 %endmacro
 
 ; Save GPR snapshot into TF (at [rsp]), not onto the CPU stack.
