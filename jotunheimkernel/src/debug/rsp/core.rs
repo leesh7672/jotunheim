@@ -99,16 +99,6 @@ fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {
     tx.putc(hex4((cks >> 4) & 0xF));
     tx.putc(hex4(cks & 0xF));
 
-    tx.putc(b'$');
-    let mut cks: u8 = 0;
-    for &b in payload {
-        tx.putc(b);
-        cks = cks.wrapping_add(b);
-    }
-    tx.putc(b'#');
-    tx.putc(hex4((cks >> 4) & 0xF));
-    tx.putc(hex4(cks & 0xF));
-
     // wait for '+', and resend once if we saw '-'
     if !NO_ACK.load(core::sync::atomic::Ordering::Relaxed) {
         loop {
@@ -223,10 +213,6 @@ impl RspServer {
         tf: *mut TrapFrame,
     ) -> Outcome {
         let tx = _tx; // by value, no &mut self
-
-        // Initial stop (SIGTRAP)
-        let (tid, pc) = (1u64, unsafe { (*tf).rip });
-        send_t_stop(&tx, 0x05, tid, pc);
 
         loop {
             let len = recv_pkt_len(&tx);
