@@ -29,7 +29,7 @@
             "command": "sleep",
             "dependsOn": "run",
             "args": [
-                "5"
+                "3"
             ],
             "dependsOrder": "parallel"
         },

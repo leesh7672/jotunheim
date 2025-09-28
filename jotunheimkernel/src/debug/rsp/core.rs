@@ -98,6 +98,39 @@ fn send_pkt<T: Transport>(tx: &T, payload: &[u8]) {
     tx.putc(b'#');
     tx.putc(hex4((cks >> 4) & 0xF));
     tx.putc(hex4(cks & 0xF));
+
+    tx.putc(b'$');
+    let mut cks: u8 = 0;
+    for &b in payload {
+        tx.putc(b);
+        cks = cks.wrapping_add(b);
+    }
+    tx.putc(b'#');
+    tx.putc(hex4((cks >> 4) & 0xF));
+    tx.putc(hex4(cks & 0xF));
+
+    // wait for '+', and resend once if we saw '-'
+    if !NO_ACK.load(core::sync::atomic::Ordering::Relaxed) {
+        loop {
+            let b = tx.getc_block();
+            match b {
+                b'+' => break,
+                b'-' => {
+                    // resend exactly once; if you want, loop until '+'
+                    tx.putc(b'$');
+                    let mut cks2: u8 = 0;
+                    for &b in payload {
+                        tx.putc(b);
+                        cks2 = cks2.wrapping_add(b);
+                    }
+                    tx.putc(b'#');
+                    tx.putc(hex4((cks2 >> 4) & 0xF));
+                    tx.putc(hex4(cks2 & 0xF));
+                }
+                _ => continue,
+            }
+        }
+    }
 }
 
 unsafe fn send_pkt_raw<T: Transport>(tx: &T, ptr: *const u8, len: usize) {
@@ -215,7 +248,7 @@ impl RspServer {
                 b'q' => {
                     if starts_with(0, len, b"qSupported") {
                         // PacketSize is HEX per RSP (no 0x prefix). Keep features minimal.
-                        send_pkt(&tx, b"PacketSize=4000;QStartNoAckMode+");
+                        send_pkt(&tx, b"PacketSize=2000;QStartNoAckMode+");
                     } else if starts_with(0, len, b"qAttached") {
                         send_pkt(&tx, b"1"); // attached to a live target
                     } else if starts_with(0, len, b"qfThreadInfo") {
@@ -478,6 +511,24 @@ fn send_t_stop<T: Transport>(tx: &T, sig: u8, tid: u64, pc: u64) {
     tx.putc(b'#');
     tx.putc(hex4((cks >> 4) & 0xF));
     tx.putc(hex4(cks & 0xF));
+
+    if !NO_ACK.load(core::sync::atomic::Ordering::Relaxed) {
+        wait_for_ack(tx);
+    }
+}
+
+fn wait_for_ack<T: Transport>(tx: &T) {
+    if NO_ACK.load(core::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    loop {
+        let b = tx.getc_block();
+        match b {
+            b'+' => break, // ack ok
+            b'-' => break, // caller will resend
+            _ => continue, // ignore noise (spurious bytes)
+        }
+    }
 }
 
 fn write_hex_u64_stream<T: Transport>(tx: &T, cks: &mut u8, mut v: u64) {
