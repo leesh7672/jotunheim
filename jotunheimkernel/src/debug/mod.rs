@@ -8,7 +8,7 @@ use spin::Mutex;
 pub mod breakpoint;
 
 pub use crate::arch::native::trapframe::TrapFrame;
-use crate::kprintln;
+use crate::{arch::x86_64::serial::com1_getc_block, kprintln};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Outcome {
@@ -30,6 +30,8 @@ pub fn set_tf(tf: &mut TrapFrame) {
 
 pub fn setup() {
     if cfg!(debug_assertions) {
+        kprintln!("[JOTUNHEIM] Press any key to connect a debugger.");
+        com1_getc_block();
         kprintln!("[JOTUNHEIM] Waiting a debugger.");
         unsafe {
             core::arch::asm!("int3");
