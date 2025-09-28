@@ -61,17 +61,13 @@ check-tools:
 
 # ===== Build targets =====
 .PHONY: boot
-boot: ${BOOT_EFI}
-
-${BOOT_EFI}:
+boot:
 	@echo "==> Building bootloader (${PROFILE})"
 	cd ${BOOT_DIR} && ${RUSTUP} run ${TOOLCHAIN} ${CARGO} build ${CARGO_FLAGS}
 	@test -r "${BOOT_EFI}" || { echo "Boot EFI not found: ${BOOT_EFI}"; exit 1; }
 
 .PHONY: kernel
-kernel: ${KERNEL_ELF}
-
-${KERNEL_ELF}:
+kernel: 
 	@echo "==> Building kernel (${PROFILE})"
 	cd ${KERNEL_DIR} && ${RUSTUP} run ${TOOLCHAIN} ${CARGO} build ${CARGO_FLAGS}
 	@test -r "${KERNEL_ELF}" || { echo "Kernel ELF not found: ${KERNEL_ELF}"; exit 1; }
