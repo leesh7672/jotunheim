@@ -12,7 +12,7 @@ CARGO            ?= cargo
 BOOT_DIR         := jotunboot
 KERNEL_DIR       := jotunheimkernel
 TARGET_DIR_BOOT  := ${BOOT_DIR}/target/x86_64-unknown-uefi/${PROFILE}
-TARGET_DIR_KRN   := ${KERNEL_DIR}/target/x86_64-unknown-none/${PROFILE}
+TARGET_DIR_KRN   := ${KERNEL_DIR}/target/x86_64-unknown-jotunheim_kernel/${PROFILE}
 
 BOOT_EFI_NAME    := jotunboot.efi
 KERNEL_ELF_NAME  := jotunheim-kernel
