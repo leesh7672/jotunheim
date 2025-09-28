@@ -6,7 +6,6 @@
             "type": "process",
             "command": "make",
             "args": [
-                "distclean",
                 "all"
             ],
             "group": "build"
