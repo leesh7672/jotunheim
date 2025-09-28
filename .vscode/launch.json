@@ -8,9 +8,9 @@
       "remote": true,
       "target": "localhost:1234",
       "cwd": "${workspaceFolder}/jotunheimkernel",
-      "executable": "${workspaceFolder}/jotunheimkernel/target/x86_64-unknown-none/debug/jotunheim-kernel",
+      "executable": "${workspaceFolder}/jotunheimkernel/target/x86_64-unknown-jotunheim_kernel/debug/jotunheim-kernel",
       "gdbpath": "/usr/local/bin/gdb",
-      "preLaunchTask":"delay",
+      "preLaunchTask":"build-run-delay",
       "debugger_args": [
         "-q",
         "-iex",
