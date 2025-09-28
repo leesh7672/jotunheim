@@ -30,8 +30,6 @@ pub fn set_tf(tf: &mut TrapFrame) {
 
 pub fn setup() {
     if cfg!(debug_assertions) {
-        kprintln!("[JOTUNHEIM] Press any key to connect a debugger.");
-        com1_getc_block();
         kprintln!("[JOTUNHEIM] Waiting a debugger.");
         unsafe {
             core::arch::asm!("int3");

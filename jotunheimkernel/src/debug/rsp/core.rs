@@ -11,6 +11,7 @@ use super::memory::Memory;
 use super::transport::Transport;
 
 use crate::debug::{BKPT, Outcome, TrapFrame, breakpoint, clear_tf, set_tf};
+use crate::kprintln;
 
 // ─────────────────────────── Buffers (all in .bss) ───────────────────────────
 
@@ -27,6 +28,7 @@ static mut TMP: [u8; TMP_LEN] = [0; TMP_LEN];
 
 /// RSP "no-ack" mode flag (QStartNoAckMode). Atomic so it’s irq-friendly.
 static NO_ACK: AtomicBool = AtomicBool::new(false);
+static EVER_RESUMED: AtomicBool = AtomicBool::new(false);
 
 // ───────────────────────────── Small helpers ─────────────────────────────────
 
@@ -134,6 +136,28 @@ unsafe fn send_pkt_raw<T: Transport>(tx: &T, ptr: *const u8, len: usize) {
     tx.putc(b'#');
     tx.putc(hex4((cks >> 4) & 0xF));
     tx.putc(hex4(cks & 0xF));
+
+    if !NO_ACK.load(core::sync::atomic::Ordering::Relaxed) {
+        loop {
+            match tx.getc_block() {
+                b'+' => break,
+                b'-' => {
+                    // resend once; you can loop until '+' if you prefer
+                    tx.putc(b'$');
+                    let mut c2: u8 = 0;
+                    for i in 0..len {
+                        let b = unsafe { ptr.add(i).read() };
+                        tx.putc(b);
+                        c2 = c2.wrapping_add(b);
+                    }
+                    tx.putc(b'#');
+                    tx.putc(hex4((c2 >> 4) & 0xF));
+                    tx.putc(hex4(c2 & 0xF));
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Receive a full packet into INBUF, return payload len (no '$' nor '#xx').
@@ -214,6 +238,10 @@ impl RspServer {
     ) -> Outcome {
         let tx = _tx; // by value, no &mut self
 
+        if EVER_RESUMED.load(Ordering::Relaxed) {
+            let (tid, pc) = (1u64, unsafe { (*tf).rip as u64 });
+            send_t_stop(&tx, 0x05, tid, pc); // SIGTRAP; adjust if you classify causes
+        }
         loop {
             let len = recv_pkt_len(&tx);
             if len == 0 {
@@ -406,12 +434,14 @@ impl RspServer {
                             }
                         }
                     }
+                    EVER_RESUMED.store(true, Ordering::Relaxed);
                     return Outcome::Continue;
                 }
                 b'v' if starts_with(0, len, b"vCont;s") => {
                     unsafe {
                         set_tf(&mut *tf);
                     }
+                    EVER_RESUMED.store(true, Ordering::Relaxed);
                     return Outcome::SingleStep;
                 }
 
@@ -430,12 +460,14 @@ impl RspServer {
                             }
                         }
                     }
+                    EVER_RESUMED.store(true, Ordering::Relaxed);
                     return Outcome::Continue;
                 }
                 b's' => {
                     unsafe {
                         set_tf(&mut *tf);
                     }
+                    EVER_RESUMED.store(true, Ordering::Relaxed);
                     return Outcome::SingleStep;
                 }
 
